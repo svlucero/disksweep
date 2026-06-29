@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Xcode / generated project (project.yml is the source of truth)
+*.xcodeproj
+DerivedData/
+build/
+dist/
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Misc
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM

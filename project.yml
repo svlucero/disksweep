@@ -1,0 +1,56 @@
+name: DiskSweep
+options:
+  bundleIdPrefix: com.disksweep
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  DiskSweep:
+    type: application
+    platform: macOS
+    sources:
+      - DiskSweep
+    info:
+      path: DiskSweep/Info.plist
+      properties:
+        CFBundleDisplayName: DiskSweep
+        LSMinimumSystemVersion: "13.0"
+        NSHumanReadableCopyright: ""
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.disksweep.app
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  DiskSweepTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - DiskSweepTests
+    dependencies:
+      - target: DiskSweep
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.disksweep.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  DiskSweep:
+    build:
+      targets:
+        DiskSweep: all
+        DiskSweepTests: [test]
+    test:
+      targets:
+        - DiskSweepTests
+    run:
+      config: Debug

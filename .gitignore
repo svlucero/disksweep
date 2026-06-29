@@ -5,6 +5,7 @@
 *.xcodeproj
 DerivedData/
 build/
+dist/
 *.xcuserstate
 xcuserdata/
 

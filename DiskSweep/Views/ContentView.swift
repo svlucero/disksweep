@@ -17,6 +17,7 @@ struct ContentView: View {
             BottomBar(
                 selectedCount: viewModel.selectedCount,
                 selectedSize: viewModel.selectedTotalSize,
+                selectedPath: viewModel.selectedPath,
                 onDelete: { showDeleteConfirm = true }
             )
         }

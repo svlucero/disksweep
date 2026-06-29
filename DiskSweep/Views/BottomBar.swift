@@ -1,15 +1,27 @@
 import SwiftUI
 
-/// Bottom bar: selection summary on the left, delete button on the right.
+/// Bottom bar: path of the selected node (if one) and selection summary on the
+/// left, delete button on the right.
 struct BottomBar: View {
     let selectedCount: Int
     let selectedSize: Int64
+    let selectedPath: String?
     let onDelete: () -> Void
 
     var body: some View {
-        HStack {
-            Text(summary)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                if let path = selectedPath {
+                    Text(path)
+                        .font(.callout)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .help(path)
+                }
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer()
 
@@ -20,7 +32,7 @@ struct BottomBar: View {
             .disabled(selectedCount == 0)
         }
         .padding(.horizontal)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(.bar)
     }
 

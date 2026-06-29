@@ -137,6 +137,13 @@ final class DiskSweepViewModel: ObservableObject {
         effectiveSelection.reduce(0) { $0 + $1.size }
     }
 
+    /// Full path of the selected node when exactly one is selected, abbreviated
+    /// with `~` for the home directory. `nil` for zero or multiple selections.
+    var selectedPath: String? {
+        guard let node = effectiveSelection.first, effectiveSelection.count == 1 else { return nil }
+        return (node.url.path as NSString).abbreviatingWithTildeInPath
+    }
+
     // MARK: - Scanning
 
     func scan() async {

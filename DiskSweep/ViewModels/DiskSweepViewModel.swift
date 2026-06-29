@@ -103,11 +103,13 @@ final class DiskSweepViewModel: ObservableObject {
     }
 
     /// The visible rows of the tree: each expanded node followed by its loaded
-    /// children, depth-first.
+    /// children, depth-first. The threshold also filters children — entries
+    /// below it are hidden at every level, not just the top level.
     var visibleNodes: [FileNode] {
+        let limit = threshold.bytes
         var out: [FileNode] = []
         func walk(_ nodes: [FileNode]) {
-            for node in nodes {
+            for node in nodes where node.size >= limit {
                 out.append(node)
                 if node.isExpanded, let children = node.children {
                     walk(children)

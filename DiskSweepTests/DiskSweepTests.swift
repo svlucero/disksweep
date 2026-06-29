@@ -41,6 +41,32 @@ final class DiskSweepTests: XCTestCase {
         XCTAssertEqual(vm.filteredItems.map(\.name), ["exact"])
     }
 
+    @MainActor
+    func testThresholdHidesChildrenBelowLimit() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("disksweep-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        // Top-level dir "big" with a 12 MB file (above) and a 1 MB file (below).
+        let big = root.appendingPathComponent("big")
+        try fm.createDirectory(at: big, withIntermediateDirectories: true)
+        try Data(count: 12_000_000).write(to: big.appendingPathComponent("large.bin"))
+        try Data(count: 1_000_000).write(to: big.appendingPathComponent("tiny.bin"))
+
+        let vm = DiskSweepViewModel(scanner: DiskScanner(rootURL: root))
+        vm.threshold = .mb10
+        await vm.scan()
+
+        // Expand the top-level node.
+        let rootNode = try XCTUnwrap(vm.visibleNodes.first { $0.name == "big" })
+        await vm.toggleExpand(rootNode)
+
+        let visibleNames = vm.visibleNodes.map(\.name)
+        XCTAssertTrue(visibleNames.contains("large.bin"), "Expected the 12 MB file to show")
+        XCTAssertFalse(visibleNames.contains("tiny.bin"), "1 MB file should be hidden below 10 MB threshold")
+    }
+
     // MARK: - Sorting
 
     func testScannerSortsBySizeDescending() async throws {

@@ -74,12 +74,18 @@ struct ContentView: View {
                 .disabled(viewModel.isScanning)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 if let usage = viewModel.diskUsage {
                     Text("Disco: \(usage.percentUsed)% usado · \(usage.freeFormatted) libres")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
+                Button(action: { viewModel.refreshDiskUsage() }) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("Recalcular espacio en disco")
+
                 if viewModel.isScanning {
                     ProgressView(value: viewModel.scanProgress)
                         .frame(maxWidth: 160)

@@ -87,6 +87,36 @@ final class DiskSweepTests: XCTestCase {
         XCTAssertEqual(last, 1.0, accuracy: 0.0001)
     }
 
+    // MARK: - Tree navigation (children)
+
+    func testChildrenListsFilesAndDirectoriesSortedBySize() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("disksweep-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        // A subdirectory (big) and a loose file (small).
+        let sub = root.appendingPathComponent("subdir")
+        try fm.createDirectory(at: sub, withIntermediateDirectories: true)
+        try Data(count: 8_000).write(to: sub.appendingPathComponent("inner.bin"))
+        try Data(count: 1_000).write(to: root.appendingPathComponent("file.bin"))
+
+        let scanner = DiskScanner(rootURL: root)
+        let children = await scanner.children(of: root)
+
+        XCTAssertEqual(children.map(\.name), ["subdir", "file.bin"])
+        XCTAssertTrue(children[0].isDirectory)
+        XCTAssertFalse(children[1].isDirectory)
+        XCTAssertGreaterThan(children[0].size, children[1].size)
+    }
+
+    func testChildrenOfFileOrMissingPathIsEmpty() async throws {
+        let scanner = DiskScanner()
+        let missing = URL(fileURLWithPath: "/tmp/disksweep-does-not-exist-\(UUID().uuidString)")
+        let children = await scanner.children(of: missing)
+        XCTAssertTrue(children.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeItem(name: String, size: Int64) -> DiskItem {

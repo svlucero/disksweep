@@ -51,8 +51,10 @@ final class DiskSweepViewModel: ObservableObject {
 
     /// Full, unfiltered scan results (sorted by size descending).
     @Published private(set) var allItems: [DiskItem] = []
-    /// Threshold currently selected by the user.
-    @Published var threshold: SizeThreshold = .default
+    /// Threshold currently selected by the user. Re-filters the tree instantly.
+    @Published var threshold: SizeThreshold = .default {
+        didSet { if oldValue != threshold { rebuildRoots() } }
+    }
     /// State of the most recent scan.
     @Published private(set) var scanState: ScanState = .idle
     /// Scan progress in `0.0...1.0`.
@@ -61,6 +63,17 @@ final class DiskSweepViewModel: ObservableObject {
     @Published private(set) var diskUsage: DiskUsage?
     /// Error to surface to the user (e.g. a failed delete).
     @Published var deleteError: String?
+
+    /// Top-level nodes of the navigable tree (filtered by threshold).
+    @Published private(set) var rootNodes: [FileNode] = []
+    /// IDs of the nodes the user has selected. Bound to the `List` selection.
+    @Published var selection = Set<FileNode.ID>()
+    /// Bumped to force the `List` to recompute `visibleNodes` after a node's
+    /// expansion or children change (those live on `FileNode`, not here).
+    @Published private(set) var revision = 0
+
+    /// Flat index of every loaded node by id, for selection lookups.
+    private var nodesByID: [FileNode.ID: FileNode] = [:]
 
     private let scanner: DiskScanner
     private let fileManager: FileManager
@@ -84,19 +97,44 @@ final class DiskSweepViewModel: ObservableObject {
         return allItems.filter { $0.size >= limit }
     }
 
-    /// Items currently checked by the user.
-    var selectedItems: [DiskItem] {
-        filteredItems.filter(\.isSelected)
-    }
-
-    /// Combined size of the selected items.
-    var selectedTotalSize: Int64 {
-        selectedItems.reduce(0) { $0 + $1.size }
-    }
-
     var isScanning: Bool {
         if case .scanning = scanState { return true }
         return false
+    }
+
+    /// The visible rows of the tree: each expanded node followed by its loaded
+    /// children, depth-first.
+    var visibleNodes: [FileNode] {
+        var out: [FileNode] = []
+        func walk(_ nodes: [FileNode]) {
+            for node in nodes {
+                out.append(node)
+                if node.isExpanded, let children = node.children {
+                    walk(children)
+                }
+            }
+        }
+        walk(rootNodes)
+        return out
+    }
+
+    // MARK: - Selection summary
+
+    /// Selected nodes, de-duplicated so a node nested inside another selected
+    /// node is dropped (deleting the ancestor already removes it).
+    var effectiveSelection: [FileNode] {
+        let selected = selection.compactMap { nodesByID[$0] }
+        return selected.filter { node in
+            !selected.contains { other in
+                other.id != node.id && isDescendant(node.url, of: other.url)
+            }
+        }
+    }
+
+    var selectedCount: Int { effectiveSelection.count }
+
+    var selectedTotalSize: Int64 {
+        effectiveSelection.reduce(0) { $0 + $1.size }
     }
 
     // MARK: - Scanning
@@ -112,44 +150,49 @@ final class DiskSweepViewModel: ObservableObject {
         allItems = results
         scanProgress = 1.0
         scanState = .done
+        rebuildRoots()
         refreshDiskUsage()
     }
 
-    // MARK: - Selection
+    // MARK: - Tree navigation
 
-    func toggleSelection(for item: DiskItem) {
-        guard let index = allItems.firstIndex(where: { $0.id == item.id }) else { return }
-        allItems[index].isSelected.toggle()
+    /// Expands or collapses a directory node, lazily loading its children the
+    /// first time it is opened.
+    func toggleExpand(_ node: FileNode) async {
+        guard node.isDirectory else { return }
+        node.isExpanded.toggle()
+        revision += 1
+
+        guard node.isExpanded, node.children == nil else { return }
+
+        node.isLoading = true
+        revision += 1
+
+        let entries = await scanner.children(of: node.url)
+        let children = entries.map { FileNode(entry: $0, depth: node.depth + 1) }
+        for child in children { nodesByID[child.id] = child }
+
+        node.children = children
+        node.isLoading = false
+        revision += 1
     }
 
     // MARK: - Deletion
 
-    /// Hard-deletes an item from disk (no Trash), then removes it from the list.
-    /// On failure, sets `deleteError` and leaves the item in place.
-    func deleteItem(_ item: DiskItem) {
-        do {
-            try fileManager.removeItem(at: item.url)
-            allItems.removeAll { $0.id == item.id }
-            refreshDiskUsage()
-        } catch {
-            deleteError = "No se pudo borrar \(item.name): \(error.localizedDescription)"
-        }
-    }
-
-    /// Deletes every currently selected item.
+    /// Hard-deletes every selected node from disk (no Trash), then removes it
+    /// from the tree. Failures are reported via `deleteError`.
     func deleteSelected() {
-        for item in selectedItems {
-            deleteItem(item)
+        for node in effectiveSelection {
+            do {
+                try fileManager.removeItem(at: node.url)
+                removeNodeFromTree(node)
+                purge(node)
+            } catch {
+                deleteError = "No se pudo borrar \(node.name): \(error.localizedDescription)"
+            }
         }
-    }
-
-    // MARK: - Testing
-
-    /// Injects scan results directly, bypassing a real scan. Internal so unit
-    /// tests can exercise filtering and selection without touching the disk.
-    func setItemsForTesting(_ items: [DiskItem]) {
-        allItems = items.sorted { $0.size > $1.size }
-        scanState = .done
+        revision += 1
+        refreshDiskUsage()
     }
 
     // MARK: - Disk usage
@@ -166,5 +209,64 @@ final class DiskSweepViewModel: ObservableObject {
         let total = Int64(values.volumeTotalCapacity ?? 0)
         let free = values.volumeAvailableCapacityForImportantUsage ?? 0
         diskUsage = DiskUsage(total: total, free: free)
+    }
+
+    // MARK: - Testing
+
+    /// Injects scan results directly, bypassing a real scan.
+    func setItemsForTesting(_ items: [DiskItem]) {
+        allItems = items.sorted { $0.size > $1.size }
+        scanState = .done
+        rebuildRoots()
+    }
+
+    // MARK: - Private
+
+    /// Rebuilds the top-level nodes from the current filtered items, resetting
+    /// expansion, selection, and the node index.
+    private func rebuildRoots() {
+        let roots = filteredItems.map { FileNode(item: $0, depth: 0) }
+        rootNodes = roots
+        nodesByID = Dictionary(uniqueKeysWithValues: roots.map { ($0.id, $0) })
+        selection = []
+        revision += 1
+    }
+
+    /// True when `a` lives inside the directory `b`.
+    private func isDescendant(_ a: URL, of b: URL) -> Bool {
+        let aPath = a.standardizedFileURL.path
+        let bPath = b.standardizedFileURL.path
+        return aPath.hasPrefix(bPath + "/")
+    }
+
+    /// Removes a node from the tree (and `allItems` if it is a root).
+    private func removeNodeFromTree(_ target: FileNode) {
+        if let index = rootNodes.firstIndex(where: { $0.id == target.id }) {
+            rootNodes.remove(at: index)
+            allItems.removeAll { $0.url == target.url }
+            return
+        }
+        _ = removeFromChildren(of: rootNodes, target: target)
+    }
+
+    @discardableResult
+    private func removeFromChildren(of nodes: [FileNode], target: FileNode) -> Bool {
+        for node in nodes {
+            guard var children = node.children else { continue }
+            if let index = children.firstIndex(where: { $0.id == target.id }) {
+                children.remove(at: index)
+                node.children = children
+                return true
+            }
+            if removeFromChildren(of: children, target: target) { return true }
+        }
+        return false
+    }
+
+    /// Removes a node and its descendants from the selection and the index.
+    private func purge(_ node: FileNode) {
+        selection.remove(node.id)
+        nodesByID[node.id] = nil
+        node.children?.forEach(purge)
     }
 }

@@ -44,7 +44,43 @@ actor DiskScanner {
         return items.sorted { $0.size > $1.size }
     }
 
+    /// Lists the immediate children (files and directories) of `url`, each with
+    /// its size, sorted by size descending. Directories report their total size
+    /// on disk; files report their own size. Used for lazy tree navigation.
+    func children(of url: URL) -> [DiskEntry] {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        ) else {
+            return []
+        }
+
+        var entries: [DiskEntry] = []
+        for child in contents {
+            let isDir = (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            let size = isDir ? (directorySize(at: child) ?? 0) : fileSize(at: child)
+            entries.append(
+                DiskEntry(
+                    url: child,
+                    name: child.lastPathComponent,
+                    size: size,
+                    isDirectory: isDir
+                )
+            )
+        }
+        return entries.sorted { $0.size > $1.size }
+    }
+
     // MARK: - Private
+
+    /// Size of a single regular file (allocated, falling back to logical).
+    private func fileSize(at url: URL) -> Int64 {
+        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .totalFileSizeKey, .fileSizeKey]
+        guard let values = try? url.resourceValues(forKeys: keys) else { return 0 }
+        let size = values.totalFileAllocatedSize ?? values.totalFileSize ?? values.fileSize ?? 0
+        return Int64(size)
+    }
 
     /// Recursively collects directory items at `url` and, while within depth,
     /// its subdirectories.

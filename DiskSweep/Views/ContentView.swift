@@ -15,7 +15,7 @@ struct ContentView: View {
             Divider()
 
             BottomBar(
-                selectedCount: viewModel.selectedItems.count,
+                selectedCount: viewModel.selectedCount,
                 selectedSize: viewModel.selectedTotalSize,
                 onDelete: { showDeleteConfirm = true }
             )
@@ -95,24 +95,31 @@ struct ContentView: View {
         switch viewModel.scanState {
         case .idle:
             placeholder("Pulsá «Escanear» para analizar tu carpeta personal.")
-        case .scanning where viewModel.filteredItems.isEmpty:
+        case .scanning where viewModel.rootNodes.isEmpty:
             placeholder("Escaneando…")
         case .error(let message):
             placeholder(message)
         default:
-            if viewModel.filteredItems.isEmpty {
+            if viewModel.rootNodes.isEmpty {
                 placeholder("No hay elementos por encima de \(viewModel.threshold.label).")
             } else {
-                list
+                tree
             }
         }
     }
 
-    private var list: some View {
-        List(viewModel.filteredItems) { item in
-            ItemRow(item: item) { viewModel.toggleSelection(for: item) }
+    private var tree: some View {
+        // `revision` is read so the list re-renders when nodes expand or load.
+        let _ = viewModel.revision
+        return List(selection: $viewModel.selection) {
+            ForEach(viewModel.visibleNodes) { node in
+                NodeRow(node: node) {
+                    Task { await viewModel.toggleExpand(node) }
+                }
+                .tag(node.id)
+            }
         }
-        .listStyle(.inset)
+        .listStyle(.inset(alternatesRowBackgrounds: true))
     }
 
     private func placeholder(_ text: String) -> some View {
@@ -130,7 +137,7 @@ struct ContentView: View {
     // MARK: - Helpers
 
     private var deleteMessage: String {
-        let selected = viewModel.selectedItems
+        let selected = viewModel.effectiveSelection
         let sizeText = ByteFormatter.string(fromByteCount: viewModel.selectedTotalSize)
         if selected.count == 1, let only = selected.first {
             return "¿Borrar \(only.name) (\(only.formattedSize))? Esta acción no se puede deshacer."

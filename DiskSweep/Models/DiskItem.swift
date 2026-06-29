@@ -29,6 +29,15 @@ struct DiskItem: Identifiable, Hashable {
     }
 }
 
+/// A lightweight, `Sendable` description of a single entry (file or directory)
+/// produced while navigating into an item. Crosses the actor boundary.
+struct DiskEntry: Hashable, Sendable {
+    let url: URL
+    let name: String
+    let size: Int64
+    let isDirectory: Bool
+}
+
 extension DiskItem {
     /// Human-readable size, e.g. `17 GB`, `512 MB`.
     var formattedSize: String {

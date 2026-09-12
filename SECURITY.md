@@ -7,7 +7,7 @@ Security updates are provided for the latest published release of DiskSweep.
 ## Reporting a vulnerability
 
 Do not open a public issue for a suspected vulnerability. Instead, use
-[GitHub's private vulnerability reporting](../../security/advisories/new) and
+[GitHub's private vulnerability reporting](https://github.com/svlucero/disksweep/security/advisories/new) and
 include:
 
 - The affected version or commit.

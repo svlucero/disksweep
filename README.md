@@ -30,7 +30,8 @@ cannot be undone. Review every selected path carefully before confirming.
 
 ## Installation
 
-1. Download `DiskSweep.zip` from the [latest release](../../releases/latest).
+1. Download `DiskSweep.zip` from the
+   [latest release](https://github.com/svlucero/disksweep/releases/latest).
 2. Unzip it and drag `DiskSweep.app` into `/Applications`.
 3. The release is ad-hoc signed rather than notarized with an Apple Developer ID.
    On first launch, either right-click the app and choose **Open**, or remove the

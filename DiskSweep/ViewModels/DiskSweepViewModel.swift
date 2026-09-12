@@ -64,7 +64,9 @@ final class DiskSweepViewModel: ObservableObject {
     /// Error to surface to the user (e.g. a failed delete).
     @Published var deleteError: String?
 
-    /// Top-level nodes of the navigable tree (filtered by threshold).
+    /// Top-level nodes of the navigable tree (filtered by threshold). Scan
+    /// results nested below another result are revealed when their parent is
+    /// expanded, so each location appears only once in the tree.
     @Published private(set) var rootNodes: [FileNode] = []
     /// IDs of the nodes the user has selected. Bound to the `List` selection.
     @Published var selection = Set<FileNode.ID>()
@@ -232,9 +234,16 @@ final class DiskSweepViewModel: ObservableObject {
     // MARK: - Private
 
     /// Rebuilds the top-level nodes from the current filtered items, resetting
-    /// expansion, selection, and the node index.
+    /// expansion, selection, and the node index. The scanner includes
+    /// directories at two depths, but nested results are not roots: expanding
+    /// their parent loads them at the correct location in the hierarchy.
     private func rebuildRoots() {
-        let roots = filteredItems.map { FileNode(item: $0, depth: 0) }
+        let scannedPaths = Set(allItems.map { $0.url.standardizedFileURL.path })
+        let roots = filteredItems
+            .filter { item in
+                !scannedPaths.contains(item.url.deletingLastPathComponent().standardizedFileURL.path)
+            }
+            .map { FileNode(item: $0, depth: 0) }
         rootNodes = roots
         nodesByID = Dictionary(uniqueKeysWithValues: roots.map { ($0.id, $0) })
         selection = []
@@ -248,14 +257,19 @@ final class DiskSweepViewModel: ObservableObject {
         return aPath.hasPrefix(bPath + "/")
     }
 
-    /// Removes a node from the tree (and `allItems` if it is a root).
+    /// Removes a node from the tree and every matching scanned descendant.
     private func removeNodeFromTree(_ target: FileNode) {
         if let index = rootNodes.firstIndex(where: { $0.id == target.id }) {
             rootNodes.remove(at: index)
-            allItems.removeAll { $0.url == target.url }
-            return
+        } else {
+            _ = removeFromChildren(of: rootNodes, target: target)
         }
-        _ = removeFromChildren(of: rootNodes, target: target)
+
+        let targetPath = target.url.standardizedFileURL.path
+        allItems.removeAll { item in
+            let itemPath = item.url.standardizedFileURL.path
+            return itemPath == targetPath || itemPath.hasPrefix(targetPath + "/")
+        }
     }
 
     @discardableResult

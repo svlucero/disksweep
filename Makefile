@@ -9,32 +9,32 @@ ZIP       := $(DIST_DIR)/DiskSweep.zip
 
 .PHONY: help generate build run test release clean
 
-help: ## Muestra esta ayuda
-	@echo "DiskSweep — comandos disponibles:"
+help: ## Show this help
+	@echo "DiskSweep — available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-generate: ## Genera DiskSweep.xcodeproj desde project.yml (con XcodeGen)
+generate: ## Generate DiskSweep.xcodeproj from project.yml with XcodeGen
 	xcodegen generate
 
-build: generate ## Compila la app en modo Release
+build: generate ## Build the app in Release mode
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
 		-destination '$(DEST)' -derivedDataPath $(BUILD_DIR) build
 
-run: generate ## Compila (Debug) y abre la app
+run: generate ## Build the app in Debug mode and open it
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \
 		-destination '$(DEST)' -derivedDataPath $(BUILD_DIR) build
 	open "$(BUILD_DIR)/Build/Products/Debug/$(APP)"
 
-test: generate ## Ejecuta los tests unitarios
+test: generate ## Run the unit tests
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' test
 
-release: build ## Genera un binario distribuible (dist/DiskSweep.zip)
+release: build ## Create a distributable archive (dist/DiskSweep.zip)
 	@mkdir -p $(DIST_DIR)
 	@rm -f $(ZIP)
 	ditto -c -k --keepParent \
 		"$(BUILD_DIR)/Build/Products/$(CONFIG)/$(APP)" "$(ZIP)"
-	@echo "Binario listo: $(ZIP)"
+	@echo "Archive ready: $(ZIP)"
 
-clean: ## Borra artefactos de build, dist y el proyecto generado
+clean: ## Remove build artifacts, distributions, and the generated project
 	rm -rf $(BUILD_DIR) $(DIST_DIR) $(PROJECT)

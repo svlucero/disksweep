@@ -21,9 +21,9 @@ struct ContentView: View {
                 onDelete: { showDeleteConfirm = true }
             )
         }
-        .alert("¿Borrar elementos?", isPresented: $showDeleteConfirm) {
-            Button("Cancelar", role: .cancel) {}
-            Button("Borrar", role: .destructive) {
+        .alert("Delete items?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
                 viewModel.deleteSelected()
             }
         } message: {
@@ -53,9 +53,9 @@ struct ContentView: View {
                 Spacer()
 
                 HStack(spacing: 6) {
-                    Text("Mostrar >")
+                    Text("Show >")
                         .foregroundStyle(.secondary)
-                    Picker("Umbral", selection: $viewModel.threshold) {
+                    Picker("Threshold", selection: $viewModel.threshold) {
                         ForEach(SizeThreshold.allCases) { option in
                             Text(option.label).tag(option)
                         }
@@ -68,7 +68,7 @@ struct ContentView: View {
                     if viewModel.isScanning {
                         ProgressView().controlSize(.small)
                     } else {
-                        Text("Escanear")
+                        Text("Scan")
                     }
                 }
                 .disabled(viewModel.isScanning)
@@ -76,7 +76,7 @@ struct ContentView: View {
 
             HStack(spacing: 8) {
                 if let usage = viewModel.diskUsage {
-                    Text("Disco: \(usage.percentUsed)% usado · \(usage.freeFormatted) libres")
+                    Text("Disk: \(usage.percentUsed)% used · \(usage.freeFormatted) free")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -84,7 +84,7 @@ struct ContentView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
-                .help("Recalcular espacio en disco")
+                .help("Refresh disk space")
 
                 if viewModel.isScanning {
                     ProgressView(value: viewModel.scanProgress)
@@ -101,14 +101,14 @@ struct ContentView: View {
     private var content: some View {
         switch viewModel.scanState {
         case .idle:
-            placeholder("Pulsá «Escanear» para analizar tu carpeta personal.")
+            placeholder("Press “Scan” to analyze your home folder.")
         case .scanning where viewModel.rootNodes.isEmpty:
-            placeholder("Escaneando…")
+            placeholder("Scanning…")
         case .error(let message):
             placeholder(message)
         default:
             if viewModel.rootNodes.isEmpty {
-                placeholder("No hay elementos por encima de \(viewModel.threshold.label).")
+                placeholder("No items larger than \(viewModel.threshold.label).")
             } else {
                 tree
             }
@@ -147,8 +147,8 @@ struct ContentView: View {
         let selected = viewModel.effectiveSelection
         let sizeText = ByteFormatter.string(fromByteCount: viewModel.selectedTotalSize)
         if selected.count == 1, let only = selected.first {
-            return "¿Borrar \(only.name) (\(only.formattedSize))? Esta acción no se puede deshacer."
+            return "Delete \(only.name) (\(only.formattedSize))? This action cannot be undone."
         }
-        return "¿Borrar \(selected.count) elementos (\(sizeText))? Esta acción no se puede deshacer."
+        return "Delete \(selected.count) items (\(sizeText))? This action cannot be undone."
     }
 }

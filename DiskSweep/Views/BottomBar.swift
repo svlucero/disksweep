@@ -26,7 +26,7 @@ struct BottomBar: View {
             Spacer()
 
             Button(role: .destructive, action: onDelete) {
-                Text("Borrar")
+                Text("Delete")
             }
             .keyboardShortcut(.delete, modifiers: [.command])
             .disabled(selectedCount == 0)
@@ -37,8 +37,8 @@ struct BottomBar: View {
     }
 
     private var summary: String {
-        guard selectedCount > 0 else { return "Ningún elemento seleccionado" }
-        let noun = selectedCount == 1 ? "seleccionado" : "seleccionados"
-        return "\(selectedCount) \(noun) · \(ByteFormatter.string(fromByteCount: selectedSize))"
+        guard selectedCount > 0 else { return "No items selected" }
+        let noun = selectedCount == 1 ? "item" : "items"
+        return "\(selectedCount) \(noun) selected · \(ByteFormatter.string(fromByteCount: selectedSize))"
     }
 }

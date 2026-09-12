@@ -65,38 +65,38 @@ struct DiskItem: Identifiable, Hashable {
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  DiskSweep    Mostrar >[ 50 MB ▾]   [Escanear]  │
-│               Disco: 71% usado · 56 GB libres    │
+│  DiskSweep      Show >[ 50 MB ▾]      [Scan]    │
+│                 Disk: 71% used · 56 GB free     │
 ├─────────────────────────────────────────────────┤
 │  ☐  .android          ~/             17 GB       │
 │  ☐  com.docker.docker Library/       17 GB       │
 │  ☐  .ollama           ~/             13 GB       │
 │  ...                                             │
 ├─────────────────────────────────────────────────┤
-│  2 seleccionados · 30 GB              [Borrar]   │
+│  2 items selected · 30 GB             [Delete]   │
 └─────────────────────────────────────────────────┘
 ```
 
 ### Toolbar (top)
 - App title
 - Threshold picker: `10 MB / 50 MB / 100 MB / 500 MB / 1 GB`
-- Disk usage summary: `XX% usado · YY GB libres` (updated after each delete)
-- "Escanear" button — triggers scan, shows spinner while running
+- Disk usage summary: `XX% used · YY GB free` (updated after each delete)
+- "Scan" button — triggers scan, shows spinner while running
 
 ### Item list
 - Each row: checkbox · name · parent path (abbreviated, muted) · size (right-aligned)
 - Sorted by size descending
 - Filtered live by threshold (no re-scan needed)
-- Empty state: "No hay items por encima de X MB" if nothing matches
+- Empty state: "No items larger than X MB" if nothing matches
 
 ### Bottom bar
-- Left: `N seleccionados · X GB`
-- Right: `[Borrar]` button — enabled only when ≥1 item selected
+- Left: `N items selected · X GB`
+- Right: `[Delete]` button — enabled only when ≥1 item selected
 
 ### Delete flow
 1. User checks one or more items
-2. Taps "Borrar"
-3. Alert: "¿Borrar [nombre] (X GB)? Esta acción no se puede deshacer."
+2. Clicks "Delete"
+3. Alert: "Delete [name] (X GB)? This action cannot be undone."
 4. On confirm: `rm -rf` via `FileManager.removeItem(at:)`
 5. Item removed from list, disk summary updated
 

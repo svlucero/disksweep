@@ -9,7 +9,7 @@ user reclaim disk space. It scans the user's home directory (`~/`) to depth 2,
 lists directories above a configurable size threshold, and lets the user select
 and hard-delete them individually with a confirmation alert.
 
-The UI is in **Spanish**. There are **no external dependencies** — only Apple
+The UI is in **English**. There are **no external dependencies** — only Apple
 frameworks (SwiftUI, Foundation).
 
 The authoritative design lives in
@@ -32,7 +32,7 @@ View (SwiftUI)
 - **DiskSweepViewModel** (`ViewModels/DiskSweepViewModel.swift`) — a
   `@MainActor ObservableObject` that owns the scanner, publishes `allItems`,
   `filteredItems`, `threshold`, `scanState`, `scanProgress`, and disk-usage
-  summary; exposes `deleteItem(_:)`. Changing the threshold re-filters
+  summary; exposes `deleteSelected()`. Changing the threshold re-filters
   instantly without re-scanning.
 - **Views** (`Views/`) — `ContentView` (root layout), `ItemRow` (one list row),
   `BottomBar` (selection summary + delete button).
@@ -79,7 +79,7 @@ Requires Xcode 16+ and the `xcodegen` CLI (`brew install xcodegen`).
 
 ## Conventions
 
-- **Language:** Swift; UI strings in Spanish.
+- **Language:** Swift; UI strings and repository documentation in English.
 - **Concurrency:** keep scanning off the main thread (actor); the ViewModel is
   `@MainActor`. Swift language mode 5 is used to avoid strict-concurrency
   friction.

@@ -1,159 +1,119 @@
 # DiskSweep
 
-**DiskSweep** es una app nativa de macOS (SwiftUI, macOS 13+) para recuperar
-espacio en disco. Escanea tu carpeta personal (`~/`), te muestra qué carpetas
-ocupan más espacio, te deja **navegar el árbol hasta el archivo** y **borrar**
-lo que no necesites — todo con confirmación.
+[![CI](https://github.com/svlucero/disksweep/actions/workflows/ci.yml/badge.svg)](https://github.com/svlucero/disksweep/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black.svg)](https://www.apple.com/macos/)
 
-Sin dependencias externas: solo frameworks de Apple (SwiftUI + Foundation).
+DiskSweep is a native macOS app that helps you find and remove files and folders
+that consume significant disk space. It scans your home directory, presents the
+results as a navigable tree, and requires confirmation before permanently
+deleting anything.
 
----
+DiskSweep is built with SwiftUI and Foundation and has no runtime dependencies.
 
-## ✨ Características
+## Features
 
-- **Escaneo de tu carpeta personal** (`~/`) a profundidad 2, fuera del hilo
-  principal y con barra de progreso, para que la interfaz nunca se congele.
-- **Árbol navegable**: cada item se expande con el chevron (▸) y podés bajar
-  nivel por nivel —carpetas y archivos— hasta ver exactamente qué se va a
-  borrar. Los hijos se calculan **bajo demanda** (lazy) al expandir.
-- **Filtro por tamaño configurable**: `10 MB / 50 MB / 100 MB / 500 MB / 1 GB`
-  (por defecto 50 MB). El filtro aplica **en todos los niveles del árbol** y
-  **re-filtra al instante** sin volver a escanear. Lo que pesa menos que el
-  umbral no se muestra.
-- **Selección por click**: seleccioná cualquier nodo (carpeta o archivo) para
-  marcarlo. Soporta **multi-selección nativa** de macOS (`⌘`-click para sumar,
-  `⇧`-click para rangos). Lo seleccionado es lo que se borra.
-- **Ruta a la vista**: al seleccionar un único elemento se muestra su ruta
-  completa (abreviada con `~`) en la barra inferior, para que sepas qué estás
-  por borrar.
-- **Resumen de disco en vivo**: `XX% usado · YY GB libres`, con un botón **↻**
-  para recalcularlo cuando quieras. Se actualiza solo después de cada borrado.
-- **Borrado seguro tras confirmación**: un alert te pide confirmar e indica
-  nombre y tamaño antes de eliminar.
-- **Ordenado por tamaño** descendente en cada nivel.
+- Scans the first two levels of your home directory without blocking the UI.
+- Displays scan progress and current disk usage.
+- Expands folders lazily so you can inspect their contents before deleting them.
+- Filters every tree level using a configurable threshold from 10 MB to 1 GB.
+- Supports native macOS multiple selection with Command-click and Shift-click.
+- Shows the full path and combined size of the effective selection.
+- Sorts entries by size at every level.
+- Requires explicit confirmation before deletion and reports deletion failures.
 
-> Los textos de la interfaz están en **español**.
+## Important: deletion is permanent
 
----
+DiskSweep uses `FileManager.removeItem(at:)`, which is equivalent to permanently
+deleting the selected items. Files are **not moved to Trash**, and the action
+cannot be undone. Review every selected path carefully before confirming.
 
-## ⚠️ Importante: el borrado es permanente
+## Installation
 
-DiskSweep hace un **hard-delete** (equivalente a `rm -rf`) usando
-`FileManager.removeItem(at:)`. **No** envía los archivos a la Papelera y **no
-hay forma de deshacer**. Siempre hay un alert de confirmación, pero usá la app
-con cuidado y revisá el árbol antes de borrar.
+1. Download `DiskSweep.zip` from the [latest release](../../releases/latest).
+2. Unzip it and drag `DiskSweep.app` into `/Applications`.
+3. The release is ad-hoc signed rather than notarized with an Apple Developer ID.
+   On first launch, either right-click the app and choose **Open**, or remove the
+   quarantine attribute from Terminal:
 
----
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/DiskSweep.app
+   ```
 
-## 📦 Instalación (binario listo para usar)
+## Usage
 
-1. Descargá `DiskSweep.zip` desde la
-   [página de Releases](../../releases/latest).
-2. Descomprimílo y arrastrá `DiskSweep.app` a `/Aplicaciones`.
-3. La app está firmada de forma **ad-hoc** (no con un Developer ID de Apple),
-   así que la primera vez macOS Gatekeeper la va a bloquear. Para abrirla:
-   - **Click derecho** sobre `DiskSweep.app` → **Abrir** → **Abrir**, o
-   - desde la terminal, quitá la cuarentena:
-     ```bash
-     xattr -dr com.apple.quarantine /Applications/DiskSweep.app
-     ```
+1. Click **Scan** to analyze your home directory.
+2. Choose a threshold from **Show >** to hide smaller entries immediately.
+3. Expand folders with the disclosure chevron to inspect their contents.
+4. Select files or folders. Use Command-click or Shift-click for multiple items.
+5. Review the path and total size, click **Delete**, and confirm the warning.
 
----
+## Development
 
-## 🛠️ Compilar desde el código
+### Requirements
 
-### Requisitos
+- macOS 13 or newer
+- Xcode 16 or newer
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen), installable with
+  `brew install xcodegen`
 
-- macOS 13+ y **Xcode 16+**
-- [XcodeGen](https://github.com/yonsm/XcodeGen): `brew install xcodegen`
+`project.yml` is the source of truth for the Xcode project. The generated
+`DiskSweep.xcodeproj` is intentionally not committed.
 
-> El archivo `DiskSweep.xcodeproj` **no** está versionado: se genera desde
-> `project.yml`, que es la fuente de verdad.
-
-### Con `make` (recomendado)
+### Commands
 
 ```bash
-make run       # genera el proyecto, compila y abre la app
-make build     # compila en modo Release
-make test      # corre los tests unitarios
-make release   # genera el binario distribuible en dist/DiskSweep.zip
-make clean     # limpia artefactos
-make help      # lista todos los comandos
+make run       # Generate the project, build in Debug mode, and open the app
+make build     # Build the app in Release mode
+make test      # Run the unit tests
+make release   # Create dist/DiskSweep.zip
+make clean     # Remove generated and build artifacts
+make help      # List available commands
 ```
 
-### Con Xcode
+To work directly in Xcode:
 
 ```bash
 xcodegen generate
-open DiskSweep.xcodeproj   # elegí el scheme "DiskSweep" y dale ▶ (⌘R)
+open DiskSweep.xcodeproj
 ```
 
----
+## Architecture
 
-## 🧭 Cómo se usa
+DiskSweep is a single-window SwiftUI app with three layers:
 
-1. Pulsá **Escanear**. Se recorre `~/` y aparecen las carpetas más pesadas.
-2. Ajustá **Mostrar > [umbral]** para filtrar por tamaño (se re-filtra al
-   instante).
-3. Expandí con el **chevron** para navegar dentro de cada carpeta hasta los
-   archivos.
-4. **Hacé click** para seleccionar lo que querés borrar (`⌘`/`⇧`-click para
-   varios). Mirá la ruta y el total seleccionado en la barra inferior.
-5. Pulsá **Borrar** y confirmá.
-
----
-
-## 🏗️ Arquitectura
-
-App de una sola ventana con tres capas:
-
-```
+```text
 View (SwiftUI)
   └── ViewModel (@MainActor ObservableObject)
         └── DiskScanner (actor)
 ```
 
-- **`DiskScanner`** (`actor`) — recorre `~/` a profundidad 2 y lista los hijos
-  de cualquier carpeta bajo demanda, con sus tamaños, fuera del hilo principal.
-- **`DiskSweepViewModel`** (`@MainActor`) — estado del árbol, filtrado por
-  umbral, selección (con de-dup de ancestros), borrado y resumen de disco.
-- **`FileNode`** — nodo observable del árbol con hijos cargados de forma lazy.
-- **Vistas** — `ContentView`, `NodeRow`, `BottomBar`.
+- `DiskScanner` scans the home directory to depth two and loads expanded folder
+  contents on demand, off the main actor.
+- `DiskSweepViewModel` owns scan state, threshold filtering, tree state,
+  selection, permanent deletion, and disk-usage reporting.
+- `FileNode` represents an observable node whose children are loaded lazily.
+- `ContentView`, `NodeRow`, and `BottomBar` render the application.
 
-```
-DiskSweep/
-├── DiskSweepApp.swift
-├── Models/DiskItem.swift
-├── Scanner/DiskScanner.swift
-├── ViewModels/
-│   ├── DiskSweepViewModel.swift
-│   └── FileNode.swift
-└── Views/
-    ├── ContentView.swift
-    ├── ItemRow.swift        # NodeRow
-    └── BottomBar.swift
-```
+The detailed behavior is documented in the
+[design specification](docs/superpowers/specs/2026-06-27-disksweep-design.md).
 
-El diseño completo está en
-[`docs/superpowers/specs/2026-06-27-disksweep-design.md`](docs/superpowers/specs/2026-06-27-disksweep-design.md).
-Las convenciones del proyecto, en [`CLAUDE.md`](CLAUDE.md).
-
----
-
-## 🧪 Tests
+## Testing
 
 ```bash
 make test
 ```
 
-Cubren la lógica no-UI: filtrado por umbral (incluyendo hijos del árbol),
-formateo de bytes, orden por tamaño y el `DiskScanner` contra fixtures en
-directorios temporales (no tocan tu disco real).
+The XCTest suite covers size formatting, threshold filtering, ordering, scan
+progress, tree navigation, and filesystem scanning against temporary fixtures.
+It does not scan or modify your real home directory.
 
----
+## Contributing
 
-## 🤝 Contribuir
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), the
+[Code of Conduct](CODE_OF_CONDUCT.md), and the [Security Policy](SECURITY.md)
+before opening an issue or pull request.
 
-Es un proyecto abierto: forkealo, probá `make run` y mandá tu PR. Mantené el
-estilo de commits convencionales (`feat:`, `fix:`, `docs:`…) y agregá tests
-para la lógica nueva.
+## License
+
+DiskSweep is available under the [MIT License](LICENSE).

@@ -10,5 +10,6 @@ DiskSweep has no network API, command-line API, persistence layer, or external s
 - `deleteSelected()` permanently removes selected filesystem items with `FileManager.removeItem(at:)`; the UI must obtain confirmation first. Failures remain visible through `deleteError`.
 - Disk capacity comes from the home volume's total capacity and capacity available for important usage.
 - The generated macOS application targets macOS 13+, uses bundle identifier `com.disksweep.app`, and is distributed as `dist/DiskSweep.zip` by `make release`.
+- Public source distributions are licensed under MIT. Security reports use GitHub private vulnerability reporting rather than public issues.
 
 See also [architecture](architecture.md) and [coding standards](coding_standards.md).

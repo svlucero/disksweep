@@ -8,6 +8,7 @@
 - Keep user-facing copy and repository documentation in English.
 - Add XCTest coverage for new non-UI behavior. Filesystem tests must use isolated temporary directories and clean them up.
 - Generate the project with `xcodegen generate`; use `make build`, `make test`, and `make release` for standard workflows.
+- GitHub Actions must use read-only permissions by default and run the same `make test` command contributors use locally.
 - Do not commit generated Xcode projects, derived data, build output, release archives, or macOS metadata.
 - Use conventional commit prefixes such as `feat:`, `fix:`, `docs:`, `test:`, and `chore:`.
 

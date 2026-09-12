@@ -9,5 +9,7 @@
 - `DiskItem` represents initial directory results; `DiskEntry` crosses the scanner actor boundary; `FileNode` is the observable UI tree node.
 - `project.yml` is the XcodeGen source of truth. The generated `DiskSweep.xcodeproj` and build artifacts are ignored.
 - `DiskSweepTests/` contains XCTest coverage for scanning, filtering, formatting, sorting, progress, and lazy tree behavior.
+- `.github/workflows/ci.yml` builds and tests pull requests and pushes to `main` on a pinned macOS 15 runner.
+- Root-level community files define the MIT license, contribution process, conduct expectations, and private security-reporting path.
 
 See also [coding standards](coding_standards.md) and [application contracts](api_contracts.md).

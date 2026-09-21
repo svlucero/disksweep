@@ -5,7 +5,7 @@
 - Preserve the home-directory and depth-two scan boundary. Do not silently expand scanning to system paths.
 - Permanent deletion must always require an explicit confirmation alert and surface failures to the user.
 - Use descriptive Swift names, four-space indentation, `MARK` sections for larger types, and documentation comments for non-obvious behavior.
-- Keep user-facing copy and repository documentation in English.
+- Keep identifiers, comments, user-facing copy, and repository documentation in English.
 - Add XCTest coverage for new non-UI behavior. Filesystem tests must use isolated temporary directories and clean them up.
 - Generate the project with `xcodegen generate`; use `make build`, `make test`, and `make release` for standard workflows.
 - GitHub Actions must use read-only permissions by default and run the same `make test` command contributors use locally.

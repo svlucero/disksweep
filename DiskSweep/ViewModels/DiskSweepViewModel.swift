@@ -199,7 +199,7 @@ final class DiskSweepViewModel: ObservableObject {
                 removeNodeFromTree(node)
                 purge(node)
             } catch {
-                deleteError = "No se pudo borrar \(node.name): \(error.localizedDescription)"
+                deleteError = "Could not delete \(node.name): \(error.localizedDescription)"
             }
         }
         revision += 1

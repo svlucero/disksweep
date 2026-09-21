@@ -1,6 +1,7 @@
 name: DiskSweep
 options:
   bundleIdPrefix: com.disksweep
+  developmentLanguage: en
   deploymentTarget:
     macOS: "13.0"
   createIntermediateGroups: true

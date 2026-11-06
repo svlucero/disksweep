@@ -1,15 +1,16 @@
 import Foundation
 
-/// Walks the user's home directory to depth 2 and reports the directories found,
+/// Walks a configured volume root to depth 2 and reports the directories found,
 /// sorted by size descending. Runs entirely off the main thread.
 actor DiskScanner {
 
-    /// Maximum depth, relative to the home directory, that is scanned.
-    /// Depth 1 == direct children of `~/`; depth 2 == grandchildren.
+    /// Maximum depth, relative to the configured root, that is scanned.
+    /// Depth 1 == direct children of the volume root; depth 2 == grandchildren.
     static let maxDepth = 2
 
     private let fileManager: FileManager
-    private let rootURL: URL
+    nonisolated let rootURL: URL
+    private let mountedVolumePaths: Set<String>
 
     init(
         fileManager: FileManager = .default,
@@ -17,6 +18,8 @@ actor DiskScanner {
     ) {
         self.fileManager = fileManager
         self.rootURL = rootURL
+        let mountedURLs = fileManager.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: []) ?? []
+        self.mountedVolumePaths = Set(mountedURLs.map { $0.standardizedFileURL.path })
     }
 
     /// Scans the root directory to `maxDepth`, returning directories sorted by
@@ -58,6 +61,7 @@ actor DiskScanner {
 
         var entries: [DiskEntry] = []
         for child in contents {
+            guard !isNestedMountPoint(child) else { continue }
             let isDir = (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
             let size = isDir ? (directorySize(at: child) ?? 0) : fileSize(at: child)
             entries.append(
@@ -112,6 +116,7 @@ actor DiskScanner {
         }
 
         return contents.filter { child in
+            guard !isNestedMountPoint(child) else { return false }
             let values = try? child.resourceValues(forKeys: [.isDirectoryKey])
             return values?.isDirectory == true
         }
@@ -149,6 +154,7 @@ actor DiskScanner {
         for case let fileURL as URL in enumerator {
             guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
                   values.isRegularFile == true else {
+                if isNestedMountPoint(fileURL) { enumerator.skipDescendants() }
                 continue
             }
             let size = values.totalFileAllocatedSize ?? values.totalFileSize ?? 0
@@ -157,18 +163,24 @@ actor DiskScanner {
         return total
     }
 
-    /// An abbreviated label for the parent directory, relative to home.
-    /// `~/Library/com.docker` -> `Library/`; `~/.android` -> `~/`.
+    /// Prevents a scan of one volume from traversing another volume mounted below it.
+    private func isNestedMountPoint(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return path != rootURL.standardizedFileURL.path && mountedVolumePaths.contains(path)
+    }
+
+    /// An abbreviated label for the parent directory, relative to the scan root.
     private func parentLabel(for url: URL) -> String {
         let parent = url.deletingLastPathComponent()
-        let homePath = rootURL.standardizedFileURL.path
+        let rootPath = rootURL.standardizedFileURL.path
         let parentPath = parent.standardizedFileURL.path
 
-        if parentPath == homePath {
-            return "~/"
+        if parentPath == rootPath {
+            return "./"
         }
-        if parentPath.hasPrefix(homePath + "/") {
-            let relative = String(parentPath.dropFirst(homePath.count + 1))
+        if parentPath.hasPrefix(rootPath == "/" ? "/" : rootPath + "/") {
+            let prefix = rootPath == "/" ? 1 : rootPath.count + 1
+            let relative = String(parentPath.dropFirst(prefix))
             return relative + "/"
         }
         return parent.lastPathComponent + "/"

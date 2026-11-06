@@ -53,6 +53,22 @@ struct ContentView: View {
                 Spacer()
 
                 HStack(spacing: 6) {
+                    Text("Disk")
+                        .foregroundStyle(.secondary)
+                    Picker("Disk", selection: Binding(
+                        get: { viewModel.selectedVolume },
+                        set: { viewModel.selectVolume($0) }
+                    )) {
+                        ForEach(viewModel.volumes) { volume in
+                            Text(volume.label).tag(volume)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 220)
+                    .disabled(viewModel.isScanning)
+                }
+
+                HStack(spacing: 6) {
                     Text("Show >")
                         .foregroundStyle(.secondary)
                     Picker("Threshold", selection: $viewModel.threshold) {
@@ -76,7 +92,7 @@ struct ContentView: View {
 
             HStack(spacing: 8) {
                 if let usage = viewModel.diskUsage {
-                    Text("Disk: \(usage.percentUsed)% used · \(usage.freeFormatted) free")
+                    Text("\(viewModel.selectedVolume.name): \(usage.percentUsed)% used · \(usage.freeFormatted) free")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -101,7 +117,7 @@ struct ContentView: View {
     private var content: some View {
         switch viewModel.scanState {
         case .idle:
-            placeholder("Press “Scan” to analyze your home folder.")
+            placeholder("Press “Scan” to analyze \(viewModel.selectedVolume.name).")
         case .scanning where viewModel.rootNodes.isEmpty:
             placeholder("Scanning…")
         case .error(let message):

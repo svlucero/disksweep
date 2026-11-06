@@ -9,6 +9,7 @@
 - The home folder is shown initially, but scanning is disabled until the user selects a folder. The selected folder is remembered across launches; selecting another folder clears prior results. Expanding a directory loads its immediate children lazily.
 - `DiskItem` represents initial directory results; `DiskEntry` crosses the scanner actor boundary; `FileNode` is the observable UI tree node.
 - `project.yml` is the XcodeGen source of truth for target settings and app/build versions; `make release` creates the distributable ZIP. The generated `DiskSweep.xcodeproj` and build artifacts are ignored.
+- `scripts/install.sh` downloads the latest GitHub release ZIP and installs `DiskSweep.app` under `~/Applications` by default; README documents manual install and the ad-hoc signing/quarantine behavior.
 - `DiskSweepTests/` contains XCTest coverage for scanning, filtering, formatting, sorting, progress, and lazy tree behavior.
 - `.github/workflows/ci.yml` builds and tests pull requests and pushes to `main` on a pinned macOS 15 runner.
 - Root-level community files define the MIT license, contribution process, conduct expectations, and private security-reporting path.

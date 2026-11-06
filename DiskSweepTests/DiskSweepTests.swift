@@ -22,6 +22,63 @@ final class DiskSweepTests: XCTestCase {
         XCTAssertEqual(usage.totalFormatted, ByteFormatter.string(fromByteCount: 1_000_000_000))
     }
 
+    // MARK: - Persistent folder access
+
+    func testFolderAccessBookmarkRestoresAndCanBeCleared() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("disksweep-bookmark-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "DiskSweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = FolderAccessStore(defaults: defaults)
+
+        try store.save(root)
+        XCTAssertEqual(store.restore()?.standardizedFileURL, root.standardizedFileURL)
+
+        store.clear()
+        XCTAssertNil(store.restore())
+    }
+
+    @MainActor
+    func testFolderMustBeGrantedBeforeProductionScanAndCanBeRemembered() async throws {
+        let root = try makeTempTree([("folder", 2_000)])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "DiskSweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = FolderAccessStore(defaults: defaults)
+        let vm = DiskSweepViewModel(
+            fileManager: .default,
+            homeURL: root,
+            volumes: [DiskVolume(url: root, name: "Fixture")],
+            folderAccessStore: store
+        )
+
+        XCTAssertFalse(vm.hasFolderAccess)
+        await vm.scan()
+        XCTAssertEqual(vm.scanState, .idle)
+        XCTAssertTrue(vm.allItems.isEmpty)
+
+        vm.authorizeFolder(root)
+        XCTAssertTrue(vm.hasFolderAccess)
+        XCTAssertEqual(store.restore()?.standardizedFileURL, root.standardizedFileURL)
+        await vm.scan()
+        XCTAssertEqual(vm.allItems.map(\.name), ["folder"])
+
+        let relaunchedVM = DiskSweepViewModel(
+            fileManager: .default,
+            homeURL: root,
+            volumes: [DiskVolume(url: root, name: "Fixture")],
+            folderAccessStore: store
+        )
+        XCTAssertTrue(relaunchedVM.hasFolderAccess)
+        XCTAssertEqual(relaunchedVM.selectedVolume.url.standardizedFileURL, root.standardizedFileURL)
+    }
+
     // MARK: - Threshold filtering
 
     @MainActor

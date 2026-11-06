@@ -77,18 +77,51 @@ final class DiskSweepViewModel: ObservableObject {
     /// Flat index of every loaded node by id, for selection lookups.
     private var nodesByID: [FileNode.ID: FileNode] = [:]
 
-    private let scanner: DiskScanner
+    private var scanner: DiskScanner
     private let fileManager: FileManager
-    private let homeURL: URL
+    @Published private(set) var volumes: [DiskVolume]
+    @Published private(set) var selectedVolume: DiskVolume
 
     init(
-        scanner: DiskScanner = DiskScanner(),
+        scanner: DiskScanner? = nil,
         fileManager: FileManager = .default,
-        homeURL: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        volumes suppliedVolumes: [DiskVolume]? = nil,
+        initialVolumeURL: URL? = nil
     ) {
-        self.scanner = scanner
         self.fileManager = fileManager
-        self.homeURL = homeURL
+        let discoveredVolumes = suppliedVolumes ?? DiskVolume.mounted(using: fileManager)
+        let requestedURL = initialVolumeURL ?? scanner?.rootURL ?? homeURL
+        let injectedRoot = initialVolumeURL == nil ? scanner?.rootURL : nil
+        let selected: DiskVolume
+        if let injectedRoot, injectedRoot.standardizedFileURL != homeURL.standardizedFileURL {
+            selected = DiskVolume(url: injectedRoot, name: injectedRoot.lastPathComponent)
+        } else {
+            selected = DiskVolume.containing(requestedURL, in: discoveredVolumes)
+                ?? DiskVolume(url: requestedURL, name: requestedURL.lastPathComponent)
+        }
+        self.volumes = discoveredVolumes.contains(selected) ? discoveredVolumes : discoveredVolumes + [selected]
+        self.selectedVolume = selected
+        if let scanner, scanner.rootURL.standardizedFileURL == selected.url.standardizedFileURL {
+            self.scanner = scanner
+        } else {
+            self.scanner = DiskScanner(fileManager: fileManager, rootURL: selected.url)
+        }
+        refreshDiskUsage()
+    }
+
+    /// Selects a mounted volume and clears results belonging to the old root.
+    func selectVolume(_ volume: DiskVolume) {
+        guard selectedVolume != volume else { return }
+        selectedVolume = volume
+        scanner = DiskScanner(fileManager: fileManager, rootURL: volume.url)
+        allItems = []
+        rootNodes = []
+        nodesByID = [:]
+        selection = []
+        scanProgress = 0
+        scanState = .idle
+        revision += 1
         refreshDiskUsage()
     }
 
@@ -209,7 +242,7 @@ final class DiskSweepViewModel: ObservableObject {
     // MARK: - Disk usage
 
     func refreshDiskUsage() {
-        guard let values = try? homeURL.resourceValues(forKeys: [
+        guard let values = try? selectedVolume.url.resourceValues(forKeys: [
             .volumeTotalCapacityKey,
             .volumeAvailableCapacityForImportantUsageKey
         ]) else {

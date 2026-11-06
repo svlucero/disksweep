@@ -92,6 +92,34 @@ final class DiskSweepTests: XCTestCase {
         XCTAssertEqual(vm.visibleNodes.last?.depth, 1)
     }
 
+    @MainActor
+    func testSelectingVolumeScansItsRootAndClearsPreviousResults() async throws {
+        let firstRoot = try makeTempTree([("first", 2_000)])
+        let secondRoot = try makeTempTree([("second", 3_000)])
+        defer {
+            try? FileManager.default.removeItem(at: firstRoot)
+            try? FileManager.default.removeItem(at: secondRoot)
+        }
+
+        let firstVolume = DiskVolume(url: firstRoot, name: "First")
+        let secondVolume = DiskVolume(url: secondRoot, name: "Second")
+        let vm = DiskSweepViewModel(
+            volumes: [firstVolume, secondVolume],
+            initialVolumeURL: firstRoot
+        )
+
+        await vm.scan()
+        XCTAssertEqual(vm.allItems.map(\.name), ["first"])
+
+        vm.selectVolume(secondVolume)
+        XCTAssertTrue(vm.allItems.isEmpty)
+        XCTAssertEqual(vm.scanState, .idle)
+        XCTAssertEqual(vm.selectedVolume, secondVolume)
+
+        await vm.scan()
+        XCTAssertEqual(vm.allItems.map(\.name), ["second"])
+    }
+
     // MARK: - Sorting
 
     func testScannerSortsBySizeDescending() async throws {

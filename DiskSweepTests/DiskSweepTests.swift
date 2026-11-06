@@ -120,6 +120,14 @@ final class DiskSweepTests: XCTestCase {
         XCTAssertEqual(vm.allItems.map(\.name), ["second"])
     }
 
+    func testMountedVolumesOnlyContainsBrowsableVolumes() {
+        let volumes = DiskVolume.mounted()
+
+        XCTAssertTrue(volumes.allSatisfy { volume in
+            (try? volume.url.resourceValues(forKeys: [.volumeIsBrowsableKey]))?.volumeIsBrowsable == true
+        })
+    }
+
     // MARK: - Sorting
 
     func testScannerSortsBySizeDescending() async throws {

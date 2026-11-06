@@ -8,13 +8,16 @@ struct DiskVolume: Identifiable, Hashable {
     var id: String { url.standardizedFileURL.path }
     var label: String { "\(name) (\(url.path))" }
 
-    /// Lists mounted volumes, including the system and removable volumes.
+    /// Lists user-browsable mounted volumes, including local and removable volumes.
     static func mounted(using fileManager: FileManager = .default) -> [DiskVolume] {
-        let keys: Set<URLResourceKey> = [.volumeNameKey]
+        let keys: Set<URLResourceKey> = [.volumeNameKey, .volumeIsBrowsableKey]
         let urls = fileManager.mountedVolumeURLs(includingResourceValuesForKeys: Array(keys), options: []) ?? []
         let volumes = urls.compactMap { url -> DiskVolume? in
             let path = url.standardizedFileURL.path
-            guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
+            guard let values = try? url.resourceValues(forKeys: keys),
+                  values.volumeIsBrowsable == true else {
+                return nil
+            }
             let name = values.volumeName ?? url.lastPathComponent
             return DiskVolume(url: url, name: name.isEmpty ? path : name)
         }

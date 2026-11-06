@@ -5,15 +5,16 @@
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black.svg)](https://www.apple.com/macos/)
 
 DiskSweep is a native macOS app that helps you find and remove files and folders
-that consume significant disk space. It scans your home directory, presents the
-results as a navigable tree, and requires confirmation before permanently
-deleting anything.
+that consume significant disk space. Choose a folder to scan; DiskSweep remembers
+that access between launches, presents the results as a navigable tree, and
+requires confirmation before permanently deleting anything.
 
 DiskSweep is built with SwiftUI and Foundation and has no runtime dependencies.
 
 ## Features
 
-- Scans the first two levels of your home directory without blocking the UI.
+- Scans the first two levels of the selected folder without blocking the UI.
+- Remembers access to the selected folder between launches using a macOS security bookmark.
 - Displays scan progress and current disk usage.
 - Expands folders lazily so you can inspect their contents before deleting them.
 - Filters every tree level using a configurable threshold from 10 MB to 1 GB.
@@ -43,11 +44,12 @@ cannot be undone. Review every selected path carefully before confirming.
 
 ## Usage
 
-1. Click **Scan** to analyze your home directory.
-2. Choose a threshold from **Show >** to hide smaller entries immediately.
-3. Expand folders with the disclosure chevron to inspect their contents.
-4. Select files or folders. Use Command-click or Shift-click for multiple items.
-5. Review the path and total size, click **Delete**, and confirm the warning.
+1. Choose a folder to grant DiskSweep access. The choice is remembered between launches.
+2. Click **Scan** to analyze the selected folder.
+3. Choose a threshold from **Show >** to hide smaller entries immediately.
+4. Expand folders with the disclosure chevron to inspect their contents.
+5. Select files or folders. Use Command-click or Shift-click for multiple items.
+6. Review the path and total size, click **Delete**, and confirm the warning.
 
 ## Development
 
@@ -89,10 +91,10 @@ View (SwiftUI)
         └── DiskScanner (actor)
 ```
 
-- `DiskScanner` scans the home directory to depth two and loads expanded folder
+- `DiskScanner` scans the selected folder to depth two and loads expanded folder
   contents on demand, off the main actor.
-- `DiskSweepViewModel` owns scan state, threshold filtering, tree state,
-  selection, permanent deletion, and disk-usage reporting.
+- `DiskSweepViewModel` owns selected-folder access, scan state, threshold
+  filtering, tree state, selection, permanent deletion, and disk-usage reporting.
 - `FileNode` represents an observable node whose children are loaded lazily.
 - `ContentView`, `NodeRow`, and `BottomBar` render the application.
 

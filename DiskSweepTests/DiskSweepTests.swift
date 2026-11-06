@@ -16,6 +16,12 @@ final class DiskSweepTests: XCTestCase {
         XCTAssertTrue(item.formattedSize.contains("MB"), "Expected MB, got \(item.formattedSize)")
     }
 
+    func testDiskUsageFormatsTotalCapacity() {
+        let usage = DiskUsage(total: 1_000_000_000, free: 250_000_000)
+
+        XCTAssertEqual(usage.totalFormatted, ByteFormatter.string(fromByteCount: 1_000_000_000))
+    }
+
     // MARK: - Threshold filtering
 
     @MainActor

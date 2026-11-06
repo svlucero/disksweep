@@ -6,6 +6,7 @@
 - Populate the disk selector only with mounted volumes whose `volumeIsBrowsable` resource value is `true`.
 - Permanent deletion must always require an explicit confirmation alert and surface failures to the user.
 - Use descriptive Swift names, four-space indentation, `MARK` sections for larger types, and documentation comments for non-obvious behavior.
+- Format user-facing byte quantities with the shared `ByteFormatter`.
 - Keep identifiers, comments, user-facing copy, and repository documentation in English.
 - Add XCTest coverage for new non-UI behavior. Filesystem tests must use isolated temporary directories and clean them up.
 - Generate the project with `xcodegen generate`; use `make build`, `make test`, and `make release` for standard workflows.

@@ -2,7 +2,7 @@
 
 DiskSweep has no network API, command-line API, persistence layer, or external service integration. Its important internal and operating-system contracts are:
 
-- `DiskVolume.mounted(using:)` lists mounted volumes with stable path identifiers; the home volume is selected initially.
+- `DiskVolume.mounted(using:)` lists browsable mounted volumes with stable path identifiers; simulator images and internal support mounts are excluded, and the home volume is selected initially when available.
 - `DiskScanner.scan(progress:) async -> [DiskItem]` scans directories below its configured volume root to `maxDepth`, reports progress in `0.0...1.0`, skips unreadable entries and nested mount points, and returns descending-size results.
 - `DiskScanner.children(of:) async -> [DiskEntry]` lists the immediate readable children of a directory, includes files and directories, calculates their sizes, and sorts them by descending size.
 - `DiskSweepViewModel.selectVolume(_:)` switches the scanner root, clears results from the previous volume, resets scan state, and refreshes capacity. `scan()` publishes scan state, results, progress, filtered root nodes, and selected-volume usage.

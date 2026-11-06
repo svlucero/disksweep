@@ -1,8 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: DiskSweepViewModel
     @State private var showDeleteConfirm = false
+    @State private var showFolderPicker = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,6 +42,31 @@ struct ContentView: View {
         } message: {
             Text(viewModel.deleteError ?? "")
         }
+        .alert(
+            "Folder Access",
+            isPresented: Binding(
+                get: { viewModel.folderAccessError != nil },
+                set: { if !$0 { viewModel.folderAccessError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { viewModel.folderAccessError = nil }
+        } message: {
+            Text(viewModel.folderAccessError ?? "")
+        }
+        .fileImporter(
+            isPresented: $showFolderPicker,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first { viewModel.authorizeFolder(url) }
+            case .failure(let error):
+                if (error as? CocoaError)?.code != .userCancelled {
+                    viewModel.folderAccessError = "Could not open the selected folder: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     // MARK: - Header / toolbar
@@ -52,21 +79,19 @@ struct ContentView: View {
 
                 Spacer()
 
-                HStack(spacing: 6) {
-                    Text("Disk")
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(viewModel.selectedVolume.name)
+                        .font(.callout)
+                    Text(viewModel.selectedVolume.url.path)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                    Picker("Disk", selection: Binding(
-                        get: { viewModel.selectedVolume },
-                        set: { viewModel.selectVolume($0) }
-                    )) {
-                        ForEach(viewModel.volumes) { volume in
-                            Text(volume.label).tag(volume)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 220)
-                    .disabled(viewModel.isScanning)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
+                .frame(maxWidth: 220, alignment: .trailing)
+
+                Button("Choose Folder…") { showFolderPicker = true }
+                    .disabled(viewModel.isScanning)
 
                 HStack(spacing: 6) {
                     Text("Show >")
@@ -88,6 +113,7 @@ struct ContentView: View {
                     }
                 }
                 .disabled(viewModel.isScanning)
+                .disabled(!viewModel.hasFolderAccess)
             }
 
             HStack(spacing: 8) {
@@ -117,7 +143,9 @@ struct ContentView: View {
     private var content: some View {
         switch viewModel.scanState {
         case .idle:
-            placeholder("Press “Scan” to analyze \(viewModel.selectedVolume.name).")
+            placeholder(viewModel.hasFolderAccess
+                ? "Press “Scan” to analyze \(viewModel.selectedVolume.name)."
+                : "Choose a folder to grant DiskSweep access. Your choice will be remembered.")
         case .scanning where viewModel.rootNodes.isEmpty:
             placeholder("Scanning…")
         case .error(let message):

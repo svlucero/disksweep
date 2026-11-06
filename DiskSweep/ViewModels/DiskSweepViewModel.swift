@@ -82,32 +82,103 @@ final class DiskSweepViewModel: ObservableObject {
     private let fileManager: FileManager
     @Published private(set) var volumes: [DiskVolume]
     @Published private(set) var selectedVolume: DiskVolume
+    @Published private(set) var hasFolderAccess = false
+    @Published var folderAccessError: String?
+    private let folderAccessStore: FolderAccessStore
+    private var scopedFolderURL: URL?
+    private var startedScopedAccess = false
 
     init(
         scanner: DiskScanner? = nil,
         fileManager: FileManager = .default,
         homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         volumes suppliedVolumes: [DiskVolume]? = nil,
-        initialVolumeURL: URL? = nil
+        initialVolumeURL: URL? = nil,
+        folderAccessStore: FolderAccessStore = FolderAccessStore()
     ) {
         self.fileManager = fileManager
+        self.folderAccessStore = folderAccessStore
         let discoveredVolumes = suppliedVolumes ?? DiskVolume.mounted(using: fileManager)
-        let requestedURL = initialVolumeURL ?? scanner?.rootURL ?? homeURL
+        let restoredFolderURL = scanner == nil && initialVolumeURL == nil ? folderAccessStore.restore() : nil
+        let requestedURL = initialVolumeURL ?? scanner?.rootURL ?? restoredFolderURL ?? homeURL
         let injectedRoot = initialVolumeURL == nil ? scanner?.rootURL : nil
         let selected: DiskVolume
-        if let injectedRoot, injectedRoot.standardizedFileURL != homeURL.standardizedFileURL {
+        if let restoredFolderURL {
+            selected = DiskVolume(url: restoredFolderURL, name: restoredFolderURL.lastPathComponent)
+        } else if let injectedRoot, injectedRoot.standardizedFileURL != homeURL.standardizedFileURL {
             selected = DiskVolume(url: injectedRoot, name: injectedRoot.lastPathComponent)
         } else {
             selected = DiskVolume.containing(requestedURL, in: discoveredVolumes)
                 ?? DiskVolume(url: requestedURL, name: requestedURL.lastPathComponent)
         }
-        self.volumes = discoveredVolumes.contains(selected) ? discoveredVolumes : discoveredVolumes + [selected]
+        self.volumes = [selected]
         self.selectedVolume = selected
         if let scanner, scanner.rootURL.standardizedFileURL == selected.url.standardizedFileURL {
             self.scanner = scanner
         } else {
             self.scanner = DiskScanner(fileManager: fileManager, rootURL: selected.url)
         }
+        let injectedAccess = scanner != nil || initialVolumeURL != nil
+        if let restoredFolderURL {
+            let didStartAccess = selected.url.startAccessingSecurityScopedResource()
+            if Self.canReadFolder(at: selected.url, using: fileManager) {
+                self.startedScopedAccess = didStartAccess
+                self.scopedFolderURL = selected.url
+                self.hasFolderAccess = true
+            } else {
+                if didStartAccess { selected.url.stopAccessingSecurityScopedResource() }
+                folderAccessStore.clear()
+            }
+        } else if injectedAccess {
+            self.startedScopedAccess = selected.url.startAccessingSecurityScopedResource()
+            self.scopedFolderURL = selected.url
+            self.hasFolderAccess = true
+        }
+        refreshDiskUsage()
+    }
+
+    /// Saves and activates a folder selected by the user through the system picker.
+    func authorizeFolder(_ url: URL) {
+        if scopedFolderURL?.standardizedFileURL == url.standardizedFileURL {
+            do {
+                try folderAccessStore.save(url)
+            } catch {
+                folderAccessError = "Could not remember access to this folder: \(error.localizedDescription)"
+            }
+            return
+        }
+
+        let folder = DiskVolume(url: url, name: url.lastPathComponent)
+        let didStartAccess = url.startAccessingSecurityScopedResource()
+        guard Self.canReadFolder(at: url, using: fileManager) else {
+            if didStartAccess { url.stopAccessingSecurityScopedResource() }
+            folderAccessError = "DiskSweep could not access the selected folder. Choose another folder or check its permissions."
+            return
+        }
+        do {
+            try folderAccessStore.save(url)
+        } catch {
+            if didStartAccess { url.stopAccessingSecurityScopedResource() }
+            folderAccessError = "Could not remember access to this folder: \(error.localizedDescription)"
+            return
+        }
+
+        if let oldURL = scopedFolderURL, startedScopedAccess {
+            oldURL.stopAccessingSecurityScopedResource()
+        }
+        scopedFolderURL = url
+        startedScopedAccess = didStartAccess
+        hasFolderAccess = true
+        selectedVolume = folder
+        volumes = [folder]
+        scanner = DiskScanner(fileManager: fileManager, rootURL: url)
+        allItems = []
+        rootNodes = []
+        nodesByID = [:]
+        selection = []
+        scanProgress = 0
+        scanState = .idle
+        revision += 1
         refreshDiskUsage()
     }
 
@@ -185,6 +256,10 @@ final class DiskSweepViewModel: ObservableObject {
     // MARK: - Scanning
 
     func scan() async {
+        guard hasFolderAccess else {
+            scanState = .idle
+            return
+        }
         scanState = .scanning
         scanProgress = 0.0
 
@@ -243,6 +318,10 @@ final class DiskSweepViewModel: ObservableObject {
     // MARK: - Disk usage
 
     func refreshDiskUsage() {
+        guard hasFolderAccess else {
+            diskUsage = nil
+            return
+        }
         guard let values = try? selectedVolume.url.resourceValues(forKeys: [
             .volumeTotalCapacityKey,
             .volumeAvailableCapacityForImportantUsageKey
@@ -282,6 +361,11 @@ final class DiskSweepViewModel: ObservableObject {
         nodesByID = Dictionary(uniqueKeysWithValues: roots.map { ($0.id, $0) })
         selection = []
         revision += 1
+    }
+
+    private static func canReadFolder(at url: URL, using fileManager: FileManager) -> Bool {
+        guard fileManager.isReadableFile(atPath: url.path) else { return false }
+        return (try? fileManager.contentsOfDirectory(atPath: url.path)) != nil
     }
 
     /// True when `a` lives inside the directory `b`.

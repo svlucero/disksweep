@@ -44,6 +44,7 @@ struct DiskUsage: Equatable {
     var percentUsed: Int { total > 0 ? Int((Double(used) / Double(total) * 100).rounded()) : 0 }
 
     var freeFormatted: String { ByteFormatter.string(fromByteCount: free) }
+    var totalFormatted: String { ByteFormatter.string(fromByteCount: total) }
 }
 
 @MainActor

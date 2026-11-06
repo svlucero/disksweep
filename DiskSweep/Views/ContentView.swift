@@ -92,7 +92,7 @@ struct ContentView: View {
 
             HStack(spacing: 8) {
                 if let usage = viewModel.diskUsage {
-                    Text("\(viewModel.selectedVolume.name): \(usage.percentUsed)% used · \(usage.freeFormatted) free")
+                    Text("\(viewModel.selectedVolume.name): \(usage.percentUsed)% used · \(usage.freeFormatted) free of \(usage.totalFormatted)")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

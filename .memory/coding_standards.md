@@ -2,7 +2,7 @@
 
 - Use Swift 5 and Apple frameworks only unless a dependency is explicitly justified.
 - Keep UI state and filesystem mutations in the `@MainActor` view model; keep directory traversal in the `DiskScanner` actor.
-- Preserve the home-directory and depth-two scan boundary. Do not silently expand scanning to system paths.
+- Scan only the selected mounted volume, to depth two for initial results; do not cross into other mounted volumes nested below its root.
 - Permanent deletion must always require an explicit confirmation alert and surface failures to the user.
 - Use descriptive Swift names, four-space indentation, `MARK` sections for larger types, and documentation comments for non-obvious behavior.
 - Keep identifiers, comments, user-facing copy, and repository documentation in English.

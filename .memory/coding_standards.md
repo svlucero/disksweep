@@ -4,6 +4,7 @@
 - Keep UI state and filesystem mutations in the `@MainActor` view model; keep directory traversal in the `DiskScanner` actor.
 - Scan only the user-authorized folder, to depth two for initial results; do not cross into mounted volumes nested below its root.
 - Obtain filesystem access through the system folder picker; persist it with an app-scoped security bookmark and keep the security scope active while using that folder.
+- Keep the selected volume's capacity summary independent of scan-folder authorization; scanning and filesystem traversal still require granted access.
 - Keep App Sandbox enabled and limit filesystem entitlements to the user-selected read/write folder and app-scoped bookmarks.
 - Permanent deletion must always require an explicit confirmation alert and surface failures to the user.
 - Use descriptive Swift names, four-space indentation, `MARK` sections for larger types, and documentation comments for non-obvious behavior.

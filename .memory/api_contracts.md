@@ -11,7 +11,7 @@ DiskSweep has no network API, command-line API, or external service integration.
 - `SizeThreshold` uses decimal byte boundaries from 10 MB through 1 GB; changing it re-filters loaded content without rescanning.
 - `effectiveSelection` removes descendants when an ancestor is selected, preventing duplicate deletion work and double-counted sizes.
 - `deleteSelected()` permanently removes selected filesystem items with `FileManager.removeItem(at:)`; the UI must obtain confirmation first. Failures remain visible through `deleteError`.
-- Disk capacity comes from the selected folder's containing volume total capacity and capacity available for important usage. The header reports that volume's percent used, formatted free capacity, and formatted total capacity.
+- Disk capacity comes from the selected folder's containing volume total capacity and capacity available for important usage. The header can show that volume's percent used, formatted free capacity, and formatted total capacity before scan-folder authorization; scanning still requires authorization.
 - The generated macOS application targets macOS 13+, uses English as its development language and `com.disksweep.app` as its bundle identifier. App and build versions come from `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`; `make release` builds `dist/DiskSweep.zip`.
 - `scripts/install.sh` consumes the public `DiskSweep.zip` asset at GitHub's latest-release download URL, installs to `~/Applications` unless a destination is passed, and removes the app's quarantine attribute because published builds are ad-hoc signed and not notarized.
 - Public source distributions are licensed under MIT. Security reports use GitHub private vulnerability reporting rather than public issues.

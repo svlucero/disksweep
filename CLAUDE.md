@@ -5,9 +5,9 @@ Guidance for Claude agents (and humans) working in this repository.
 ## Project Overview
 
 **DiskSweep** is a native macOS desktop app (SwiftUI, macOS 13+) that helps the
-user reclaim disk space. It scans the user's home directory (`~/`) to depth 2,
-lists directories above a configurable size threshold, and lets the user select
-and hard-delete them individually with a confirmation alert.
+user reclaim disk space. It scans the selected mounted disk to depth 2, lists
+directories above a configurable size threshold, and lets the user select and
+hard-delete them individually with a confirmation alert.
 
 The UI is in **English**. There are **no external dependencies** — only Apple
 frameworks (SwiftUI, Foundation).
@@ -25,10 +25,11 @@ View (SwiftUI)
         └── DiskScanner (actor)
 ```
 
-- **DiskScanner** (`Scanner/DiskScanner.swift`) — an `actor` that walks `~/` to
-  depth 2 using `FileManager` + `URLResourceValues(.totalFileSizeKey)`, off the
-  main thread. Returns `[DiskItem]` sorted by size descending. Skips files,
-  nil-size entries, and permission-denied folders. Reports progress (0.0–1.0).
+- **DiskScanner** (`Scanner/DiskScanner.swift`) — an `actor` that walks the
+  selected mounted volume to depth 2 using `FileManager` and URL resource
+  values, off the main thread. Returns `[DiskItem]` sorted by size descending
+  and reports progress (0.0–1.0). It stops on denied or expired folders so the
+  UI can ask for access instead of silently skipping them.
 - **DiskSweepViewModel** (`ViewModels/DiskSweepViewModel.swift`) — a
   `@MainActor ObservableObject` that owns the scanner, publishes `allItems`,
   `filteredItems`, `threshold`, `scanState`, `scanProgress`, and disk-usage
@@ -37,6 +38,8 @@ View (SwiftUI)
 - **Views** (`Views/`) — `ContentView` (root layout), `ItemRow` (one list row),
   `BottomBar` (selection summary + delete button).
 - **DiskItem** (`Models/DiskItem.swift`) — `Identifiable, Hashable` value type.
+- **FolderAccessStore** (`Models/FolderAccessStore.swift`) — persists selected
+  folder bookmarks and one-calendar-month approval dates.
 
 ## Project Structure
 
@@ -85,5 +88,7 @@ Requires Xcode 16+ and the `xcodegen` CLI (`brew install xcodegen`).
   friction.
 - **Deletes are destructive** — hard-delete via `FileManager.removeItem(at:)`
   (no Trash), always gated behind a confirmation alert. Never remove this guard.
-- Scanning is limited to `~/` at depth 2 — do not broaden scope to the system.
+- Scan the selected mounted volume to depth 2 and do not cross into nested
+  mounted volumes. Start scanning before requesting access; ask for a specific
+  folder only when traversal reaches it. The app target is not App Sandbox enabled.
 - Commit style: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).

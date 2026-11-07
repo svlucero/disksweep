@@ -1,4 +1,9 @@
+import Darwin
 import Foundation
+
+enum DiskScannerError: Error, Equatable {
+    case accessRequired(URL)
+}
 
 /// Walks a configured volume root to depth 2 and reports the directories found,
 /// sorted by size descending. Runs entirely off the main thread.
@@ -22,15 +27,14 @@ actor DiskScanner {
         self.mountedVolumePaths = Set(mountedURLs.map { $0.standardizedFileURL.path })
     }
 
-    /// Scans the root directory to `maxDepth`, returning directories sorted by
-    /// size descending.
-    ///
-    /// - Parameter progress: Called on the actor with a value in `0.0...1.0` as
-    ///   the scan advances. Useful for driving a progress bar.
-    func scan(progress: (@Sendable (Double) -> Void)? = nil) -> [DiskItem] {
-        // Collect the top-level directories first so we can report meaningful
-        // progress as each one is fully measured.
-        let topLevel = directories(in: rootURL)
+    /// Scans the root directory to `maxDepth`. If a previously granted folder
+    /// has expired or the OS denies access, throws its URL so the UI can request
+    /// access and restart the scan.
+    func scan(
+        expiredFolderPaths: Set<String> = [],
+        progress: (@Sendable (Double) -> Void)? = nil
+    ) throws -> [DiskItem] {
+        let topLevel = try directories(in: rootURL, expiredFolderPaths: expiredFolderPaths)
         guard !topLevel.isEmpty else {
             progress?(1.0)
             return []
@@ -40,136 +44,208 @@ actor DiskScanner {
         let total = Double(topLevel.count)
 
         for (index, dir) in topLevel.enumerated() {
-            items.append(contentsOf: collect(at: dir, depth: 1))
+            items.append(contentsOf: try collect(at: dir, depth: 1, expiredFolderPaths: expiredFolderPaths))
             progress?(Double(index + 1) / total)
         }
 
         return items.sorted { $0.size > $1.size }
     }
 
-    /// Lists the immediate children (files and directories) of `url`, each with
-    /// its size, sorted by size descending. Directories report their total size
-    /// on disk; files report their own size. Used for lazy tree navigation.
-    func children(of url: URL) -> [DiskEntry] {
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: []
-        ) else {
-            return []
-        }
-
+    /// Lists immediate children and their sizes for lazy tree navigation.
+    func children(of url: URL, expiredFolderPaths: Set<String> = []) throws -> [DiskEntry] {
+        let contents = try directoryContents(at: url, expiredFolderPaths: expiredFolderPaths)
         var entries: [DiskEntry] = []
+
         for child in contents {
             guard !isNestedMountPoint(child) else { continue }
-            let isDir = (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-            let size = isDir ? (directorySize(at: child) ?? 0) : fileSize(at: child)
-            entries.append(
-                DiskEntry(
-                    url: child,
-                    name: child.lastPathComponent,
-                    size: size,
-                    isDirectory: isDir
+            do {
+                let isDirectory = try child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+                let size = isDirectory
+                    ? (try directorySize(at: child, expiredFolderPaths: expiredFolderPaths) ?? 0)
+                    : try fileSize(at: child)
+                entries.append(
+                    DiskEntry(
+                        url: child,
+                        name: child.lastPathComponent,
+                        size: size,
+                        isDirectory: isDirectory
+                    )
                 )
-            )
+            } catch let error as DiskScannerError {
+                throw error
+            } catch {
+                if Self.isAccessDenied(error) {
+                    throw DiskScannerError.accessRequired(child.deletingLastPathComponent())
+                }
+            }
         }
         return entries.sorted { $0.size > $1.size }
     }
 
     // MARK: - Private
 
-    /// Size of a single regular file (allocated, falling back to logical).
-    private func fileSize(at url: URL) -> Int64 {
+    private func fileSize(at url: URL) throws -> Int64 {
         let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .totalFileSizeKey, .fileSizeKey]
-        guard let values = try? url.resourceValues(forKeys: keys) else { return 0 }
-        let size = values.totalFileAllocatedSize ?? values.totalFileSize ?? values.fileSize ?? 0
-        return Int64(size)
+        do {
+            let values = try url.resourceValues(forKeys: keys)
+            let size = values.totalFileAllocatedSize ?? values.totalFileSize ?? values.fileSize ?? 0
+            return Int64(size)
+        } catch {
+            if Self.isAccessDenied(error) {
+                throw DiskScannerError.accessRequired(url.deletingLastPathComponent())
+            }
+            throw error
+        }
     }
 
-    /// Recursively collects directory items at `url` and, while within depth,
-    /// its subdirectories.
-    private func collect(at url: URL, depth: Int) -> [DiskItem] {
+    private func collect(at url: URL, depth: Int, expiredFolderPaths: Set<String>) throws -> [DiskItem] {
         var result: [DiskItem] = []
+        if expiredFolderPaths.contains(url.standardizedFileURL.path) {
+            throw DiskScannerError.accessRequired(url)
+        }
 
-        if let item = makeItem(for: url) {
-            result.append(item)
+        if let size = try directorySize(at: url, expiredFolderPaths: expiredFolderPaths) {
+            result.append(
+                DiskItem(
+                    url: url,
+                    name: url.lastPathComponent,
+                    parentLabel: parentLabel(for: url),
+                    size: size
+                )
+            )
         }
 
         if depth < Self.maxDepth {
-            for child in directories(in: url) {
-                result.append(contentsOf: collect(at: child, depth: depth + 1))
+            for child in try directories(in: url, expiredFolderPaths: expiredFolderPaths) {
+                result.append(contentsOf: try collect(
+                    at: child,
+                    depth: depth + 1,
+                    expiredFolderPaths: expiredFolderPaths
+                ))
             }
         }
-
         return result
     }
 
-    /// Returns the immediate subdirectories of `url`, skipping files,
-    /// permission-denied entries, and anything unreadable.
-    private func directories(in url: URL) -> [URL] {
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: []
-        ) else {
+    private func directories(in url: URL, expiredFolderPaths: Set<String>) throws -> [URL] {
+        try directoryContents(at: url, expiredFolderPaths: expiredFolderPaths).filter { child in
+            guard !isNestedMountPoint(child) else { return false }
+            do {
+                if expiredFolderPaths.contains(child.standardizedFileURL.path) {
+                    throw DiskScannerError.accessRequired(child)
+                }
+                return try child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+            } catch let error as DiskScannerError {
+                throw error
+            } catch {
+                if Self.isAccessDenied(error) {
+                    throw DiskScannerError.accessRequired(child)
+                }
+                return false
+            }
+        }
+    }
+
+    private func directoryContents(at url: URL, expiredFolderPaths: Set<String>) throws -> [URL] {
+        let path = url.standardizedFileURL.path
+        if expiredFolderPaths.contains(path) {
+            throw DiskScannerError.accessRequired(url)
+        }
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             return []
         }
+        guard fileManager.isReadableFile(atPath: url.path) else {
+            throw DiskScannerError.accessRequired(url)
+        }
 
-        return contents.filter { child in
-            guard !isNestedMountPoint(child) else { return false }
-            let values = try? child.resourceValues(forKeys: [.isDirectoryKey])
-            return values?.isDirectory == true
+        do {
+            return try fileManager.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: []
+            )
+        } catch {
+            if Self.isAccessDenied(error) {
+                throw DiskScannerError.accessRequired(url)
+            }
+            return []
         }
     }
 
-    /// Builds a `DiskItem` for a directory, measuring its total size on disk.
-    /// Returns `nil` when the size can't be determined (permission denied,
-    /// symlink, etc.) so the caller can skip it.
-    private func makeItem(for url: URL) -> DiskItem? {
-        guard let size = directorySize(at: url) else { return nil }
+    /// Sums allocated bytes recursively and stops at the first denied or
+    /// expired folder so the UI can ask for permission before continuing.
+    private func directorySize(at url: URL, expiredFolderPaths: Set<String>) throws -> Int64? {
+        if expiredFolderPaths.contains(url.standardizedFileURL.path) {
+            throw DiskScannerError.accessRequired(url)
+        }
 
-        return DiskItem(
-            url: url,
-            name: url.lastPathComponent,
-            parentLabel: parentLabel(for: url),
-            size: size
-        )
-    }
-
-    /// Sums the `.totalFileAllocatedSize` (falling back to `.totalFileSize`) of
-    /// every file under `url`. Returns `nil` if the directory can't be
-    /// enumerated at all.
-    private func directorySize(at url: URL) -> Int64? {
         let keys: [URLResourceKey] = [.totalFileSizeKey, .totalFileAllocatedSizeKey, .isRegularFileKey]
-        guard let enumerator = fileManager.enumerator(
+        var deniedURL: URL?
+        let enumerator = fileManager.enumerator(
             at: url,
             includingPropertiesForKeys: keys,
             options: [],
-            errorHandler: { _, _ in true } // skip individual errors, keep going
-        ) else {
+            errorHandler: { failedURL, error in
+                if Self.isAccessDenied(error) {
+                    deniedURL = failedURL
+                    return false
+                }
+                return true
+            }
+        )
+
+        if let deniedURL {
+            throw DiskScannerError.accessRequired(deniedURL)
+        }
+        guard let enumerator else {
+            if !fileManager.isReadableFile(atPath: url.path) {
+                throw DiskScannerError.accessRequired(url)
+            }
             return nil
         }
 
         var total: Int64 = 0
         for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
-                  values.isRegularFile == true else {
-                if isNestedMountPoint(fileURL) { enumerator.skipDescendants() }
+            let path = fileURL.standardizedFileURL.path
+            if expiredFolderPaths.contains(path) {
+                throw DiskScannerError.accessRequired(fileURL)
+            }
+            if isNestedMountPoint(fileURL) {
+                enumerator.skipDescendants()
                 continue
             }
-            let size = values.totalFileAllocatedSize ?? values.totalFileSize ?? 0
-            total += Int64(size)
+
+            do {
+                let values = try fileURL.resourceValues(forKeys: Set(keys))
+                guard values.isRegularFile == true else { continue }
+                total += Int64(values.totalFileAllocatedSize ?? values.totalFileSize ?? 0)
+            } catch {
+                if Self.isAccessDenied(error) {
+                    throw DiskScannerError.accessRequired(fileURL.deletingLastPathComponent())
+                }
+            }
+        }
+
+        if let deniedURL {
+            throw DiskScannerError.accessRequired(deniedURL)
         }
         return total
     }
 
-    /// Prevents a scan of one volume from traversing another volume mounted below it.
+    nonisolated private static func isAccessDenied(_ error: Error) -> Bool {
+        let error = error as NSError
+        if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
+            return true
+        }
+        return error.domain == NSPOSIXErrorDomain && (error.code == EACCES || error.code == EPERM)
+    }
+
     private func isNestedMountPoint(_ url: URL) -> Bool {
         let path = url.standardizedFileURL.path
         return path != rootURL.standardizedFileURL.path && mountedVolumePaths.contains(path)
     }
 
-    /// An abbreviated label for the parent directory, relative to the scan root.
     private func parentLabel(for url: URL) -> String {
         let parent = url.deletingLastPathComponent()
         let rootPath = rootURL.standardizedFileURL.path

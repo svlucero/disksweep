@@ -87,14 +87,11 @@ final class DiskSweepViewModel: ObservableObject {
     private let fileManager: FileManager
     @Published private(set) var volumes: [DiskVolume]
     @Published private(set) var selectedVolume: DiskVolume
-    @Published private(set) var hasFolderAccess = false
+    @Published private(set) var pendingAccessURL: URL?
     @Published var folderAccessError: String?
     @Published private(set) var authorizationRequestID = 0
     private let folderAccessStore: FolderAccessStore
-    private var scopedFolderURL: URL?
-    private var scopedVolumeID: String?
-    private var startedScopedAccess = false
-    private let usesInjectedAccess: Bool
+    private var activeScopedURLs: [String: URL] = [:]
 
     init(
         scanner: DiskScanner? = nil,
@@ -106,7 +103,6 @@ final class DiskSweepViewModel: ObservableObject {
     ) {
         self.fileManager = fileManager
         self.folderAccessStore = folderAccessStore
-        self.usesInjectedAccess = scanner != nil || initialVolumeURL != nil
         let discoveredVolumes = suppliedVolumes ?? DiskVolume.mounted(using: fileManager)
         let requestedURL = initialVolumeURL ?? scanner?.rootURL ?? homeURL
         let injectedRoot = initialVolumeURL == nil ? scanner?.rootURL : nil
@@ -124,58 +120,30 @@ final class DiskSweepViewModel: ObservableObject {
         } else {
             self.scanner = DiskScanner(fileManager: fileManager, rootURL: selected.url)
         }
-        if usesInjectedAccess {
-            self.startedScopedAccess = selected.url.startAccessingSecurityScopedResource()
-            self.scopedFolderURL = selected.url
-            self.scopedVolumeID = selected.id
-            self.hasFolderAccess = true
-        }
         refreshDiskUsage()
     }
 
-    /// Saves the user's one-month grant for the selected volume root.
+    /// Saves one-month approval for the folder the scanner could not read.
     @discardableResult
     func authorizeFolder(_ url: URL) -> Bool {
         folderAccessError = nil
-        guard url.standardizedFileURL == selectedVolume.url.standardizedFileURL else {
-            folderAccessError = "Select the root of \(selectedVolume.name) to grant access to that disk."
+        guard let pendingAccessURL,
+              url.standardizedFileURL == pendingAccessURL.standardizedFileURL else {
+            folderAccessError = "Select the folder DiskSweep requested to continue the scan."
             return false
         }
 
-        let alreadyAccessingSelectedVolume = scopedVolumeID == selectedVolume.id
-            && scopedFolderURL?.standardizedFileURL == url.standardizedFileURL
-            && hasFolderAccess
-        let didStartAccess = alreadyAccessingSelectedVolume ? false : url.startAccessingSecurityScopedResource()
-        guard Self.canReadFolder(at: url, using: fileManager) else {
-            if didStartAccess { url.stopAccessingSecurityScopedResource() }
-            folderAccessError = "DiskSweep could not access \(selectedVolume.name). Choose the disk root again or check its permissions."
-            return false
-        }
         do {
-            try folderAccessStore.save(url, forVolumeID: selectedVolume.id)
+            try folderAccessStore.save(url)
+            if url.startAccessingSecurityScopedResource() {
+                activeScopedURLs[url.standardizedFileURL.path] = url
+            }
+            self.pendingAccessURL = nil
+            return true
         } catch {
-            if didStartAccess { url.stopAccessingSecurityScopedResource() }
-            folderAccessError = "Could not remember access to this disk: \(error.localizedDescription)"
+            folderAccessError = "Could not remember access to this folder: \(error.localizedDescription)"
             return false
         }
-
-        if !alreadyAccessingSelectedVolume {
-            stopCurrentAccess()
-            scopedFolderURL = url
-            scopedVolumeID = selectedVolume.id
-            startedScopedAccess = didStartAccess
-        }
-        hasFolderAccess = true
-        scanner = DiskScanner(fileManager: fileManager, rootURL: selectedVolume.url)
-        allItems = []
-        rootNodes = []
-        nodesByID = [:]
-        selection = []
-        scanProgress = 0
-        scanState = .idle
-        revision += 1
-        refreshDiskUsage()
-        return true
     }
 
     /// Selects a mounted volume and clears results belonging to the old root.
@@ -184,12 +152,6 @@ final class DiskSweepViewModel: ObservableObject {
         stopCurrentAccess()
         selectedVolume = volume
         scanner = DiskScanner(fileManager: fileManager, rootURL: volume.url)
-        if usesInjectedAccess {
-            scopedFolderURL = volume.url
-            scopedVolumeID = volume.id
-            startedScopedAccess = volume.url.startAccessingSecurityScopedResource()
-            hasFolderAccess = true
-        }
         allItems = []
         rootNodes = []
         nodesByID = [:]
@@ -260,25 +222,31 @@ final class DiskSweepViewModel: ObservableObject {
 
     @discardableResult
     func scan() async -> ScanRequestResult {
-        guard prepareAccessForSelectedVolume() else {
-            scanState = .idle
-            authorizationRequestID += 1
-            return .authorizationRequired
-        }
         guard !isScanning else { return .scanned }
+        pendingAccessURL = nil
         scanState = .scanning
         scanProgress = 0.0
+        let expired = folderAccessStore.expiredFolderPaths()
+        refreshActiveFolderScopes(expiredPaths: expired)
 
-        let results = await scanner.scan { [weak self] value in
-            Task { @MainActor in self?.scanProgress = value }
+        do {
+            let results = try await scanner.scan(expiredFolderPaths: expired) { [weak self] value in
+                Task { @MainActor in self?.scanProgress = value }
+            }
+            allItems = results
+            scanProgress = 1.0
+            scanState = .done
+            rebuildRoots()
+            refreshDiskUsage()
+            return .scanned
+        } catch DiskScannerError.accessRequired(let url) {
+            scanState = .idle
+            requestAccess(to: url)
+            return .authorizationRequired
+        } catch {
+            scanState = .error("Could not scan this disk: \(error.localizedDescription)")
+            return .scanned
         }
-
-        allItems = results
-        scanProgress = 1.0
-        scanState = .done
-        rebuildRoots()
-        refreshDiskUsage()
-        return .scanned
     }
 
     // MARK: - Tree navigation
@@ -286,37 +254,38 @@ final class DiskSweepViewModel: ObservableObject {
     /// Expands or collapses a directory node, lazily loading its children the
     /// first time it is opened.
     func toggleExpand(_ node: FileNode) async {
-        guard prepareAccessForSelectedVolume() else {
-            authorizationRequestID += 1
-            return
-        }
+        refreshActiveFolderScopes(expiredPaths: folderAccessStore.expiredFolderPaths())
         guard node.isDirectory else { return }
         node.isExpanded.toggle()
         revision += 1
-
         guard node.isExpanded, node.children == nil else { return }
 
         node.isLoading = true
         revision += 1
-
-        let entries = await scanner.children(of: node.url)
-        let children = entries.map { FileNode(entry: $0, depth: node.depth + 1) }
-        for child in children { nodesByID[child.id] = child }
-
-        node.children = children
+        do {
+            let entries = try await scanner.children(
+                of: node.url,
+                expiredFolderPaths: folderAccessStore.expiredFolderPaths()
+            )
+            let children = entries.map { FileNode(entry: $0, depth: node.depth + 1) }
+            for child in children { nodesByID[child.id] = child }
+            node.children = children
+        } catch DiskScannerError.accessRequired(let url) {
+            node.isExpanded = false
+            requestAccess(to: url)
+        } catch {
+            node.isExpanded = false
+            deleteError = "Could not read \(node.name): \(error.localizedDescription)"
+        }
         node.isLoading = false
         revision += 1
     }
 
     // MARK: - Deletion
 
-    /// Hard-deletes every selected node from disk (no Trash), then removes it
-    /// from the tree. Failures are reported via `deleteError`.
+    /// Hard-deletes selected nodes after the UI confirms the action.
     func deleteSelected() {
-        guard prepareAccessForSelectedVolume() else {
-            authorizationRequestID += 1
-            return
-        }
+        guard !expiredGrantBlocksSelection() else { return }
         for node in effectiveSelection {
             do {
                 try fileManager.removeItem(at: node.url)
@@ -357,53 +326,41 @@ final class DiskSweepViewModel: ObservableObject {
 
     // MARK: - Private
 
-    private func prepareAccessForSelectedVolume() -> Bool {
-        if usesInjectedAccess {
-            hasFolderAccess = true
-            return true
-        }
+    private func requestAccess(to url: URL) {
+        pendingAccessURL = url
+        authorizationRequestID += 1
+    }
 
-        guard let grantedURL = folderAccessStore.restore(forVolumeID: selectedVolume.id) else {
-            stopCurrentAccess()
-            hasFolderAccess = false
-            return false
-        }
-        guard grantedURL.standardizedFileURL == selectedVolume.url.standardizedFileURL else {
-            folderAccessStore.clear(forVolumeID: selectedVolume.id)
-            stopCurrentAccess()
-            return false
-        }
-
-        if scopedVolumeID == selectedVolume.id,
-           scopedFolderURL?.standardizedFileURL == grantedURL.standardizedFileURL,
-           hasFolderAccess {
-            return true
-        }
-
-        stopCurrentAccess()
-        let didStartAccess = grantedURL.startAccessingSecurityScopedResource()
-        guard Self.canReadFolder(at: grantedURL, using: fileManager) else {
-            if didStartAccess { grantedURL.stopAccessingSecurityScopedResource() }
-            folderAccessStore.clear(forVolumeID: selectedVolume.id)
-            hasFolderAccess = false
-            return false
-        }
-
-        scopedFolderURL = grantedURL
-        scopedVolumeID = selectedVolume.id
-        startedScopedAccess = didStartAccess
-        hasFolderAccess = true
+    private func expiredGrantBlocksSelection() -> Bool {
+        let expired = folderAccessStore.expiredFolderPaths()
+        refreshActiveFolderScopes(expiredPaths: expired)
+        guard let path = expired.first(where: { path in
+            effectiveSelection.contains { node in
+                let itemPath = node.url.standardizedFileURL.path
+                return itemPath == path || itemPath.hasPrefix(path + "/")
+            }
+        }) else { return false }
+        requestAccess(to: URL(fileURLWithPath: path, isDirectory: true))
         return true
     }
 
-    private func stopCurrentAccess() {
-        if let scopedFolderURL, startedScopedAccess {
-            scopedFolderURL.stopAccessingSecurityScopedResource()
+    private func refreshActiveFolderScopes(expiredPaths: Set<String>) {
+        for path in expiredPaths {
+            activeScopedURLs.removeValue(forKey: path)?.stopAccessingSecurityScopedResource()
         }
-        scopedFolderURL = nil
-        scopedVolumeID = nil
-        startedScopedAccess = false
-        hasFolderAccess = false
+        for url in folderAccessStore.validFolderURLs() {
+            let path = url.standardizedFileURL.path
+            guard activeScopedURLs[path] == nil,
+                  url.startAccessingSecurityScopedResource() else { continue }
+            activeScopedURLs[path] = url
+        }
+    }
+
+    private func stopCurrentAccess() {
+        for url in activeScopedURLs.values {
+            url.stopAccessingSecurityScopedResource()
+        }
+        activeScopedURLs.removeAll()
     }
 
     /// Rebuilds the top-level nodes from the current filtered items, resetting
@@ -421,11 +378,6 @@ final class DiskSweepViewModel: ObservableObject {
         nodesByID = Dictionary(uniqueKeysWithValues: roots.map { ($0.id, $0) })
         selection = []
         revision += 1
-    }
-
-    private static func canReadFolder(at url: URL, using fileManager: FileManager) -> Bool {
-        guard fileManager.isReadableFile(atPath: url.path) else { return false }
-        return (try? fileManager.contentsOfDirectory(atPath: url.path)) != nil
     }
 
     /// True when `a` lives inside the directory `b`.

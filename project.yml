@@ -30,9 +30,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.disksweep.app
         GENERATE_INFOPLIST_FILE: NO
-        ENABLE_APP_SANDBOX: YES
         ENABLE_HARDENED_RUNTIME: YES
-        CODE_SIGN_ENTITLEMENTS: DiskSweep/DiskSweep.entitlements
         COMBINE_HIDPI_IMAGES: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
 

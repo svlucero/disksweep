@@ -1,29 +1,38 @@
 import Foundation
 
-/// Persists one-month, app-scoped security grants for mounted volumes.
+/// Persists user-approved folder grants and their one-month expiration dates.
 struct FolderAccessStore {
     private struct Grant: Codable {
         var bookmarkData: Data
         let grantedAt: Date
     }
 
-    private static let grantsKey = "authorizedVolumeGrants"
+    private static let grantsKey = "authorizedFolderGrants"
+    private static let legacyVolumeGrantsKey = "authorizedVolumeGrants"
     private static let legacyBookmarkKey = "authorizedFolderBookmark"
 
     private let defaults: UserDefaults
     private let usesSecurityScope: Bool
 
-    init(defaults: UserDefaults = .standard, usesSecurityScope: Bool = true) {
+    init(defaults: UserDefaults = .standard, usesSecurityScope: Bool = false) {
         self.defaults = defaults
         self.usesSecurityScope = usesSecurityScope
 
-        // The previous bookmark format had no grant date, so it cannot be
-        // safely treated as a current one-month authorization.
+        // Previous local builds keyed grants by volume path, which is the same
+        // path key used for folder grants when that grant covered a volume root.
+        if defaults.data(forKey: Self.grantsKey) == nil,
+           let oldGrants = defaults.data(forKey: Self.legacyVolumeGrantsKey) {
+            defaults.set(oldGrants, forKey: Self.grantsKey)
+        }
+        defaults.removeObject(forKey: Self.legacyVolumeGrantsKey)
+
+        // The original bookmark had no grant date and cannot safely be treated
+        // as a current one-month authorization.
         defaults.removeObject(forKey: Self.legacyBookmarkKey)
     }
 
-    /// Saves the user's grant for a volume and starts its one-month lifetime.
-    func save(_ url: URL, forVolumeID volumeID: String, at grantedAt: Date = Date()) throws {
+    /// Records explicit user approval for `url` and starts its one-month term.
+    func save(_ url: URL, at grantedAt: Date = Date()) throws {
         let options: URL.BookmarkCreationOptions = usesSecurityScope ? [.withSecurityScope] : []
         let bookmarkData = try url.bookmarkData(
             options: options,
@@ -32,25 +41,52 @@ struct FolderAccessStore {
         )
 
         var grants = readGrants()
-        grants[volumeID] = Grant(bookmarkData: bookmarkData, grantedAt: grantedAt)
+        grants[url.standardizedFileURL.path] = Grant(bookmarkData: bookmarkData, grantedAt: grantedAt)
         writeGrants(grants)
     }
 
-    /// Resolves a grant if it is younger than one calendar month.
+    /// Resolves a non-expired grant for a folder path.
     func restore(
-        forVolumeID volumeID: String,
+        forFolderURL url: URL,
         at now: Date = Date(),
         calendar: Calendar = .current
     ) -> URL? {
-        var grants = readGrants()
-        guard var grant = grants[volumeID] else { return nil }
+        restore(forPath: url.standardizedFileURL.path, at: now, calendar: calendar)
+    }
 
-        guard let expirationDate = calendar.date(byAdding: .month, value: 1, to: grant.grantedAt),
-              now < expirationDate else {
-            grants[volumeID] = nil
-            writeGrants(grants)
-            return nil
-        }
+    /// Resolves every currently valid grant, refreshing stale bookmarks without
+    /// extending their original expiration date.
+    func validFolderURLs(at now: Date = Date(), calendar: Calendar = .current) -> [URL] {
+        let paths = Array(readGrants().keys)
+        return paths.compactMap { restore(forPath: $0, at: now, calendar: calendar) }
+    }
+
+    /// Paths whose previous grant has expired. The scanner treats them as
+    /// requiring renewed approval before attempting to read them.
+    func expiredFolderPaths(at now: Date = Date(), calendar: Calendar = .current) -> Set<String> {
+        readGrants().compactMap { path, grant in
+            guard let expiresAt = calendar.date(byAdding: .month, value: 1, to: grant.grantedAt),
+                  now >= expiresAt else { return nil }
+            return path
+        }.reduce(into: Set<String>()) { $0.insert($1) }
+    }
+
+    func clear(forFolderURL url: URL) {
+        var grants = readGrants()
+        grants[url.standardizedFileURL.path] = nil
+        writeGrants(grants)
+    }
+
+    func clearAll() {
+        defaults.removeObject(forKey: Self.grantsKey)
+    }
+
+    private func restore(forPath path: String, at now: Date, calendar: Calendar) -> URL? {
+        var grants = readGrants()
+        guard var grant = grants[path] else { return nil }
+
+        guard let expiresAt = calendar.date(byAdding: .month, value: 1, to: grant.grantedAt),
+              now < expiresAt else { return nil }
 
         do {
             var isStale = false
@@ -68,21 +104,15 @@ struct FolderAccessStore {
                     includingResourceValuesForKeys: nil,
                     relativeTo: nil
                 )
-                grants[volumeID] = grant
+                grants[path] = grant
                 writeGrants(grants)
             }
             return url
         } catch {
-            grants[volumeID] = nil
+            grants[path] = nil
             writeGrants(grants)
             return nil
         }
-    }
-
-    func clear(forVolumeID volumeID: String) {
-        var grants = readGrants()
-        grants[volumeID] = nil
-        writeGrants(grants)
     }
 
     private func readGrants() -> [String: Grant] {

@@ -134,9 +134,7 @@ struct ContentView: View {
     private var content: some View {
         switch viewModel.scanState {
         case .idle:
-            placeholder(viewModel.hasFolderAccess
-                ? "Press “Scan” to analyze \(viewModel.selectedVolume.name)."
-                : "Choose a disk and press “Scan”. DiskSweep will ask for access before scanning.")
+            placeholder("Choose a disk and press “Scan”. DiskSweep will ask for access only when it reaches a protected folder.")
         case .scanning where viewModel.rootNodes.isEmpty:
             placeholder("Scanning…")
         case .error(let message):
@@ -185,10 +183,14 @@ struct ContentView: View {
         isFolderAccessPanelOpen = true
 
         let panel = NSOpenPanel()
+        guard let requestedFolder = viewModel.pendingAccessURL else {
+            isFolderAccessPanelOpen = false
+            return
+        }
         panel.title = "Grant DiskSweep Access"
-        panel.message = "Select the root of \(viewModel.selectedVolume.name) to grant access for one month."
+        panel.message = "Select \(requestedFolder.lastPathComponent) to continue scanning. Access is remembered for one month."
         panel.prompt = "Grant Access"
-        panel.directoryURL = viewModel.selectedVolume.url
+        panel.directoryURL = requestedFolder
         panel.allowedContentTypes = [.folder]
         panel.canChooseDirectories = true
         panel.canChooseFiles = false

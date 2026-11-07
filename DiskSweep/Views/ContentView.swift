@@ -1,10 +1,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: DiskSweepViewModel
     @State private var showDeleteConfirm = false
-    @State private var showFolderPicker = false
+    @State private var isFolderAccessPanelOpen = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,19 +54,8 @@ struct ContentView: View {
         } message: {
             Text(viewModel.folderAccessError ?? "")
         }
-        .fileImporter(
-            isPresented: $showFolderPicker,
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let url = urls.first { viewModel.authorizeFolder(url) }
-            case .failure(let error):
-                if (error as? CocoaError)?.code != .userCancelled {
-                    viewModel.folderAccessError = "Could not open the selected folder: \(error.localizedDescription)"
-                }
-            }
+        .onChange(of: viewModel.authorizationRequestID) { _ in
+            requestDiskAccess()
         }
     }
 
@@ -79,19 +69,21 @@ struct ContentView: View {
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(viewModel.selectedVolume.name)
-                        .font(.callout)
-                    Text(viewModel.selectedVolume.url.path)
-                        .font(.caption)
+                HStack(spacing: 6) {
+                    Text("Disk")
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .frame(maxWidth: 220, alignment: .trailing)
-
-                Button("Choose Folder…") { showFolderPicker = true }
+                    Picker("Disk", selection: Binding(
+                        get: { viewModel.selectedVolume },
+                        set: { viewModel.selectVolume($0) }
+                    )) {
+                        ForEach(viewModel.volumes) { volume in
+                            Text(volume.label).tag(volume)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 220)
                     .disabled(viewModel.isScanning)
+                }
 
                 HStack(spacing: 6) {
                     Text("Show >")
@@ -105,7 +97,7 @@ struct ContentView: View {
                     .frame(width: 110)
                 }
 
-                Button(action: { Task { await viewModel.scan() } }) {
+                Button(action: scanSelectedVolume) {
                     if viewModel.isScanning {
                         ProgressView().controlSize(.small)
                     } else {
@@ -113,7 +105,6 @@ struct ContentView: View {
                     }
                 }
                 .disabled(viewModel.isScanning)
-                .disabled(!viewModel.hasFolderAccess)
             }
 
             HStack(spacing: 8) {
@@ -145,7 +136,7 @@ struct ContentView: View {
         case .idle:
             placeholder(viewModel.hasFolderAccess
                 ? "Press “Scan” to analyze \(viewModel.selectedVolume.name)."
-                : "Choose a folder to grant DiskSweep access. Your choice will be remembered.")
+                : "Choose a disk and press “Scan”. DiskSweep will ask for access before scanning.")
         case .scanning where viewModel.rootNodes.isEmpty:
             placeholder("Scanning…")
         case .error(let message):
@@ -183,6 +174,34 @@ struct ContentView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func scanSelectedVolume() {
+        Task { await viewModel.scan() }
+    }
+
+    private func requestDiskAccess() {
+        guard !isFolderAccessPanelOpen else { return }
+        isFolderAccessPanelOpen = true
+
+        let panel = NSOpenPanel()
+        panel.title = "Grant DiskSweep Access"
+        panel.message = "Select the root of \(viewModel.selectedVolume.name) to grant access for one month."
+        panel.prompt = "Grant Access"
+        panel.directoryURL = viewModel.selectedVolume.url
+        panel.allowedContentTypes = [.folder]
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+
+        panel.begin { response in
+            Task { @MainActor in
+                isFolderAccessPanelOpen = false
+                guard response == .OK, let url = panel.url,
+                      viewModel.authorizeFolder(url) else { return }
+                scanSelectedVolume()
+            }
+        }
     }
 
     // MARK: - Helpers

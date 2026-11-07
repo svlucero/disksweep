@@ -31,6 +31,29 @@ cannot be undone. Review every selected path carefully before confirming.
 
 ## Installation
 
+### Install the latest release from Terminal
+
+On macOS 13 or newer, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/svlucero/disksweep/main/scripts/install.sh | bash
+```
+
+The installer downloads the latest `DiskSweep.zip` release and installs the app
+to `~/Applications` without requiring administrator access. To choose another
+destination, pass it to the installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/svlucero/disksweep/main/scripts/install.sh | bash -s -- "/Applications"
+```
+
+The release is ad-hoc signed and is not notarized with an Apple Developer ID.
+The installer removes macOS's quarantine attribute from the downloaded app so
+it can open. This trusts the app from the DiskSweep GitHub release; review the
+script before running it if you prefer to inspect installation steps first.
+
+### Install manually
+
 1. Download `DiskSweep.zip` from the
    [latest release](https://github.com/svlucero/disksweep/releases/latest).
 2. Unzip it and drag `DiskSweep.app` into `/Applications`.

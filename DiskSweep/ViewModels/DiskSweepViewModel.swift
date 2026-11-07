@@ -318,10 +318,6 @@ final class DiskSweepViewModel: ObservableObject {
     // MARK: - Disk usage
 
     func refreshDiskUsage() {
-        guard hasFolderAccess else {
-            diskUsage = nil
-            return
-        }
         guard let values = try? selectedVolume.url.resourceValues(forKeys: [
             .volumeTotalCapacityKey,
             .volumeAvailableCapacityForImportantUsageKey

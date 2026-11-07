@@ -59,6 +59,7 @@ final class DiskSweepTests: XCTestCase {
         )
 
         XCTAssertFalse(vm.hasFolderAccess)
+        XCTAssertNotNil(vm.diskUsage, "Volume capacity should be available before folder scan access is granted.")
         await vm.scan()
         XCTAssertEqual(vm.scanState, .idle)
         XCTAssertTrue(vm.allItems.isEmpty)

@@ -28,8 +28,8 @@ View (SwiftUI)
 - **DiskScanner** (`Scanner/DiskScanner.swift`) — an `actor` that walks the
   selected mounted volume to depth 2 using `FileManager` and URL resource
   values, off the main thread. Returns `[DiskItem]` sorted by size descending
-  and reports progress (0.0–1.0). It stops on denied or expired folders so the
-  UI can ask for access instead of silently skipping them.
+  and reports progress (0.0–1.0). On denied access it reports the affected URL
+  so the UI can direct the user to macOS Privacy & Security settings.
 - **DiskSweepViewModel** (`ViewModels/DiskSweepViewModel.swift`) — a
   `@MainActor ObservableObject` that owns the scanner, publishes `allItems`,
   `filteredItems`, `threshold`, `scanState`, `scanProgress`, and disk-usage
@@ -38,8 +38,6 @@ View (SwiftUI)
 - **Views** (`Views/`) — `ContentView` (root layout), `ItemRow` (one list row),
   `BottomBar` (selection summary + delete button).
 - **DiskItem** (`Models/DiskItem.swift`) — `Identifiable, Hashable` value type.
-- **FolderAccessStore** (`Models/FolderAccessStore.swift`) — persists selected
-  folder bookmarks and one-calendar-month approval dates.
 
 ## Project Structure
 
@@ -89,6 +87,7 @@ Requires Xcode 16+ and the `xcodegen` CLI (`brew install xcodegen`).
 - **Deletes are destructive** — hard-delete via `FileManager.removeItem(at:)`
   (no Trash), always gated behind a confirmation alert. Never remove this guard.
 - Scan the selected mounted volume to depth 2 and do not cross into nested
-  mounted volumes. Start scanning before requesting access; ask for a specific
-  folder only when traversal reaches it. The app target is not App Sandbox enabled.
+  mounted volumes. Do not open a folder picker to handle denied access; direct
+  the user to macOS Privacy & Security settings. The app target is not App Sandbox
+  enabled, so macOS manages file privacy permissions.
 - Commit style: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).

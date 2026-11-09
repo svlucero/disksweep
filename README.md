@@ -6,16 +6,16 @@
 
 DiskSweep is a native macOS app that helps you find and remove files and folders
 that consume significant disk space. Choose a mounted disk and start scanning.
-macOS controls access to protected folders; if it blocks a path, DiskSweep points
-you to System Settings. Results appear as a navigable tree, and permanent deletion
-requires confirmation.
+When the scan reaches a protected folder, DiskSweep asks you to select that folder
+and remembers approval for one calendar month. Results appear as a navigable tree,
+and permanent deletion requires confirmation.
 
 DiskSweep is built with SwiftUI and Foundation and has no runtime dependencies.
 
 ## Features
 
 - Scans the selected mounted disk to the first two folder levels without blocking the UI.
-- Scans immediately and relies on macOS to control access to protected folders.
+- Requests access only when the scan reaches a protected folder and remembers that folder for one calendar month.
 - Displays scan progress and current disk usage.
 - Expands folders lazily so you can inspect their contents before deleting them.
 - Filters every tree level using a configurable threshold from 10 MB to 1 GB.
@@ -69,7 +69,7 @@ script before running it if you prefer to inspect installation steps first.
 ## Usage
 
 1. Choose a mounted disk from the **Disk** menu.
-2. Click **Scan** to analyze the disk. DiskSweep does not open a folder picker. If macOS denies access, review its permissions in **System Settings > Privacy & Security**, then scan again.
+2. Click **Scan** to analyze the disk. When access is blocked, select the requested folder in the access panel; DiskSweep remembers approval for one calendar month.
 3. Choose a threshold from **Show >** to hide smaller entries immediately.
 4. Expand folders with the disclosure chevron to inspect their contents.
 5. Select files or folders. Use Command-click or Shift-click for multiple items.
@@ -116,9 +116,9 @@ View (SwiftUI)
 ```
 
 - `DiskScanner` scans the selected mounted disk to depth two and loads expanded folder
-  contents on demand, off the main actor. If macOS denies access, the UI points
-  the user to System Settings to review DiskSweep's permissions.
-- `DiskSweepViewModel` owns mounted-disk selection, scan state, threshold
+  contents on demand, off the main actor. It pauses on denied or expired folders
+  so the UI can request approval and resume the scan.
+- `DiskSweepViewModel` owns mounted-disk selection, per-folder approvals, scan state, threshold
   filtering, tree state, selection, permanent deletion, and disk-usage reporting.
 - `FileNode` represents an observable node whose children are loaded lazily.
 - `ContentView`, `NodeRow`, and `BottomBar` render the application.

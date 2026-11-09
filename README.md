@@ -6,16 +6,16 @@
 
 DiskSweep is a native macOS app that helps you find and remove files and folders
 that consume significant disk space. Choose a mounted disk and start scanning.
-macOS controls access to protected folders; if it blocks a path, DiskSweep opens
-the exact Full Disk Access settings pane. Results appear as a navigable tree, and
-permanent deletion requires confirmation.
+DiskSweep scans readable folders on the selected mounted disk and skips folders
+the current user cannot read. Results appear as a navigable tree, and permanent
+deletion requires confirmation.
 
 DiskSweep is built with SwiftUI and Foundation and has no runtime dependencies.
 
 ## Features
 
 - Scans the selected mounted disk to the first two folder levels without blocking the UI.
-- Scans immediately and relies on macOS to control access to protected folders.
+- Skips unreadable folders and continues scanning the rest of the disk.
 - Displays scan progress and current disk usage.
 - Expands folders lazily so you can inspect their contents before deleting them.
 - Filters every tree level using a configurable threshold from 10 MB to 1 GB.
@@ -69,7 +69,7 @@ script before running it if you prefer to inspect installation steps first.
 ## Usage
 
 1. Choose a mounted disk from the **Disk** menu.
-2. Click **Scan** to analyze the disk. If macOS blocks access, use the button to open **System Settings > Privacy & Security > Full Disk Access**, add DiskSweep with **+**, and enable it. Then scan again.
+2. Click **Scan** to analyze the disk. Folders the current user cannot read are skipped.
 3. Choose a threshold from **Show >** to hide smaller entries immediately.
 4. Expand folders with the disclosure chevron to inspect their contents.
 5. Select files or folders. Use Command-click or Shift-click for multiple items.
@@ -116,8 +116,7 @@ View (SwiftUI)
 ```
 
 - `DiskScanner` scans the selected mounted disk to depth two and loads expanded folder
-  contents on demand, off the main actor. On denied access, the UI directs the user
-  to Full Disk Access settings.
+  contents on demand, off the main actor. Inaccessible folders are skipped.
 - `DiskSweepViewModel` owns mounted-disk selection, scan state, threshold
   filtering, tree state, selection, permanent deletion, and disk-usage reporting.
 - `FileNode` represents an observable node whose children are loaded lazily.

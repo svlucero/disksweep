@@ -22,18 +22,8 @@ build: generate ## Build the app in Release mode
 		-destination '$(DEST)' -derivedDataPath $(BUILD_DIR) build
 
 run: generate ## Build the app in Debug mode and open it
-	@signing_pair=$$(security find-identity -v -p codesigning 2>/dev/null \
-		| awk '/Apple Development:/ { team=$$NF; gsub(/[()"]/, "", team); print team, $$2 }' \
-		| sort -u \
-		| awk 'NR == 1 { team=$$1; identity=$$2; next } $$1 != team { multiple=1 } END { if (NR == 1 || !multiple) print team, identity }'); \
-	signing_flags=; \
-	if [ -n "$$signing_pair" ]; then \
-		set -- $$signing_pair; \
-		signing_flags="CODE_SIGN_IDENTITY=$$2 DEVELOPMENT_TEAM=$$1 CODE_SIGN_STYLE=Manual"; \
-	fi; \
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \
-		-destination '$(DEST)' -derivedDataPath $(BUILD_DIR) \
-		$$signing_flags build
+		-destination '$(DEST)' -derivedDataPath $(BUILD_DIR) build
 	@pkill -TERM -f '^.*/DiskSweep[.]app/Contents/MacOS/DiskSweep$$' || true
 	@sleep 1
 	open -n "$(BUILD_DIR)/Build/Products/Debug/$(APP)"

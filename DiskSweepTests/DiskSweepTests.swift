@@ -36,15 +36,13 @@ final class DiskSweepTests: XCTestCase {
         )
 
         XCTAssertNotNil(vm.diskUsage)
-        let result = await vm.scan()
-        XCTAssertEqual(result, .scanned)
+        await vm.scan()
         XCTAssertEqual(vm.scanState, .done)
         XCTAssertEqual(vm.allItems.map(\.name), ["folder"])
-        XCTAssertNil(vm.accessError)
     }
 
     @MainActor
-    func testDeniedDiskAccessShowsSystemSettingsGuidanceWithoutFolderSelection() async throws {
+    func testDeniedDiskAccessIsSkippedWithoutShowingPermissionUI() async throws {
         let root = try makeTempTree([("folder", 2_000)])
         defer {
             try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
@@ -58,18 +56,9 @@ final class DiskSweepTests: XCTestCase {
             volumes: [DiskVolume(url: root, name: "Fixture")]
         )
 
-        let result = await vm.scan()
-        XCTAssertEqual(result, .permissionDenied)
-        XCTAssertEqual(vm.scanState, .idle)
-        XCTAssertTrue(vm.accessError?.contains(root.path) == true)
-        XCTAssertTrue(vm.accessError?.contains("System Settings > Privacy & Security > Full Disk Access") == true)
-    }
-
-    func testFullDiskAccessLinkOpensPrivacyPaneDirectly() {
-        XCTAssertEqual(
-            SystemSettingsLink.fullDiskAccess.absoluteString,
-            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles"
-        )
+        await vm.scan()
+        XCTAssertEqual(vm.scanState, .done)
+        XCTAssertTrue(vm.allItems.isEmpty)
     }
 
     // MARK: - Threshold filtering
@@ -196,7 +185,7 @@ final class DiskSweepTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let scanner = DiskScanner(rootURL: root)
-        let items = try await scanner.scan()
+        let items = await scanner.scan()
 
         XCTAssertEqual(items.map(\.name), ["beta", "gamma", "alpha"])
         XCTAssertTrue(zip(items, items.dropFirst()).allSatisfy { $0.size >= $1.size })
@@ -212,7 +201,7 @@ final class DiskSweepTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let scanner = DiskScanner(rootURL: root)
-        let items = try await scanner.scan()
+        let items = await scanner.scan()
 
         XCTAssertEqual(items.map(\.name), ["onlydir"])
     }
@@ -224,7 +213,7 @@ final class DiskSweepTests: XCTestCase {
         let scanner = DiskScanner(rootURL: root)
         actor Box { var last = 0.0; func set(_ v: Double) { last = v } }
         let box = Box()
-        _ = try await scanner.scan { v in Task { await box.set(v) } }
+        _ = await scanner.scan { v in Task { await box.set(v) } }
         // Allow the detached progress tasks to drain.
         try await Task.sleep(nanoseconds: 50_000_000)
         let last = await box.last
@@ -246,7 +235,7 @@ final class DiskSweepTests: XCTestCase {
         try Data(count: 1_000).write(to: root.appendingPathComponent("file.bin"))
 
         let scanner = DiskScanner(rootURL: root)
-        let children = try await scanner.children(of: root)
+        let children = await scanner.children(of: root)
 
         XCTAssertEqual(children.map(\.name), ["subdir", "file.bin"])
         XCTAssertTrue(children[0].isDirectory)
@@ -257,7 +246,7 @@ final class DiskSweepTests: XCTestCase {
     func testChildrenOfFileOrMissingPathIsEmpty() async throws {
         let scanner = DiskScanner()
         let missing = URL(fileURLWithPath: "/tmp/disksweep-does-not-exist-\(UUID().uuidString)")
-        let children = try await scanner.children(of: missing)
+        let children = await scanner.children(of: missing)
         XCTAssertTrue(children.isEmpty)
     }
 

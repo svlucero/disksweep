@@ -28,8 +28,8 @@ View (SwiftUI)
 - **DiskScanner** (`Scanner/DiskScanner.swift`) — an `actor` that walks the
   selected mounted volume to depth 2 using `FileManager` and URL resource
   values, off the main thread. Returns `[DiskItem]` sorted by size descending
-  and reports progress (0.0–1.0). On denied access it reports the affected URL
-  so the UI can direct the user to Full Disk Access in System Settings.
+  and reports progress (0.0–1.0). Unreadable folders are skipped while the scan
+  continues through other readable folders.
 - **DiskSweepViewModel** (`ViewModels/DiskSweepViewModel.swift`) — a
   `@MainActor ObservableObject` that owns the scanner, publishes `allItems`,
   `filteredItems`, `threshold`, `scanState`, `scanProgress`, and disk-usage
@@ -87,8 +87,6 @@ Requires Xcode 16+ and the `xcodegen` CLI (`brew install xcodegen`).
 - **Deletes are destructive** — hard-delete via `FileManager.removeItem(at:)`
   (no Trash), always gated behind a confirmation alert. Never remove this guard.
 - Scan the selected mounted volume to depth 2 and do not cross into nested
-  mounted volumes. Do not open a folder picker when access is denied; direct the
-  user to Full Disk Access in System Settings. The app target is not App Sandbox
-  enabled. `make run` signs local Debug builds with the available Apple Development
-  identity for a stable macOS privacy identity.
+  mounted volumes. Skip unreadable folders and continue without opening a folder
+  picker or permission dialog. The app target is not App Sandbox enabled.
 - Commit style: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).

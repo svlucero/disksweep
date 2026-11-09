@@ -1,11 +1,4 @@
 import SwiftUI
-import AppKit
-
-enum SystemSettingsLink {
-    static let fullDiskAccess = URL(
-        string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles"
-    )!
-}
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: DiskSweepViewModel
@@ -46,23 +39,6 @@ struct ContentView: View {
             Button("OK", role: .cancel) { viewModel.deleteError = nil }
         } message: {
             Text(viewModel.deleteError ?? "")
-        }
-        .alert(
-            "macOS Permission Required",
-            isPresented: Binding(
-                get: { viewModel.accessError != nil },
-                set: { if !$0 { viewModel.accessError = nil } }
-            )
-        ) {
-            Button("Open System Settings") {
-                viewModel.accessError = nil
-                if !NSWorkspace.shared.open(SystemSettingsLink.fullDiskAccess) {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
-                }
-            }
-            Button("OK", role: .cancel) { viewModel.accessError = nil }
-        } message: {
-            Text(viewModel.accessError ?? "")
         }
     }
 
@@ -141,7 +117,7 @@ struct ContentView: View {
     private var content: some View {
         switch viewModel.scanState {
         case .idle:
-            placeholder("Choose a disk and press “Scan”. macOS manages access to protected folders.")
+            placeholder("Choose a disk and press “Scan”. Inaccessible folders are skipped.")
         case .scanning where viewModel.rootNodes.isEmpty:
             placeholder("Scanning…")
         case .error(let message):

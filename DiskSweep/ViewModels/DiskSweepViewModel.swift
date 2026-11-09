@@ -35,11 +35,6 @@ enum ScanState: Equatable {
     case error(String)
 }
 
-enum ScanRequestResult: Equatable {
-    case scanned
-    case permissionDenied
-}
-
 /// Snapshot of the volume's capacity.
 struct DiskUsage: Equatable {
     let total: Int64
@@ -87,7 +82,6 @@ final class DiskSweepViewModel: ObservableObject {
     private let fileManager: FileManager
     @Published private(set) var volumes: [DiskVolume]
     @Published private(set) var selectedVolume: DiskVolume
-    @Published var accessError: String?
 
     init(
         scanner: DiskScanner? = nil,
@@ -190,31 +184,19 @@ final class DiskSweepViewModel: ObservableObject {
 
     // MARK: - Scanning
 
-    @discardableResult
-    func scan() async -> ScanRequestResult {
-        guard !isScanning else { return .scanned }
-        accessError = nil
+    func scan() async {
+        guard !isScanning else { return }
         scanState = .scanning
         scanProgress = 0.0
 
-        do {
-            let results = try await scanner.scan { [weak self] value in
-                Task { @MainActor in self?.scanProgress = value }
-            }
-            allItems = results
-            scanProgress = 1.0
-            scanState = .done
-            rebuildRoots()
-            refreshDiskUsage()
-            return .scanned
-        } catch DiskScannerError.accessRequired(let url) {
-            scanState = .idle
-            accessError = accessMessage(for: url)
-            return .permissionDenied
-        } catch {
-            scanState = .error("Could not scan this disk: \(error.localizedDescription)")
-            return .scanned
+        let results = await scanner.scan { [weak self] value in
+            Task { @MainActor in self?.scanProgress = value }
         }
+        allItems = results
+        scanProgress = 1.0
+        scanState = .done
+        rebuildRoots()
+        refreshDiskUsage()
     }
 
     // MARK: - Tree navigation
@@ -229,18 +211,10 @@ final class DiskSweepViewModel: ObservableObject {
 
         node.isLoading = true
         revision += 1
-        do {
-            let entries = try await scanner.children(of: node.url)
-            let children = entries.map { FileNode(entry: $0, depth: node.depth + 1) }
-            for child in children { nodesByID[child.id] = child }
-            node.children = children
-        } catch DiskScannerError.accessRequired(let url) {
-            node.isExpanded = false
-            accessError = accessMessage(for: url)
-        } catch {
-            node.isExpanded = false
-            deleteError = "Could not read \(node.name): \(error.localizedDescription)"
-        }
+        let entries = await scanner.children(of: node.url)
+        let children = entries.map { FileNode(entry: $0, depth: node.depth + 1) }
+        for child in children { nodesByID[child.id] = child }
+        node.children = children
         node.isLoading = false
         revision += 1
     }
@@ -288,10 +262,6 @@ final class DiskSweepViewModel: ObservableObject {
     }
 
     // MARK: - Private
-
-    private func accessMessage(for url: URL) -> String {
-        "macOS denied access to \(url.path). In System Settings > Privacy & Security > Full Disk Access, add DiskSweep with the + button and enable it. If the existing entry cannot be enabled, remove it and add the current DiskSweep.app again, then scan again."
-    }
 
     /// Rebuilds the top-level nodes from the current filtered items, resetting
     /// expansion, selection, and the node index. The scanner includes

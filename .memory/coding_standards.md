@@ -10,7 +10,7 @@
 - Use descriptive Swift names, four-space indentation, `MARK` sections for larger types, and documentation comments for non-obvious behavior.
 - Format byte quantities with the shared `ByteFormatter`; keep user-facing copy and repository documentation in English.
 - Add XCTest coverage for new non-UI behavior. Filesystem tests use isolated temporary directories and clean them up.
-- Generate the project with `xcodegen generate`; use `make build`, `make test`, and `make release` for standard workflows.
+- Generate the project with `xcodegen generate`; use `make build`, `make test`, and `make release` for standard workflows. `make run` should restart an existing app process so users see the freshly built binary.
 - Keep generated projects, build output, release archives, and macOS metadata out of commits. Use conventional commit prefixes such as `feat:`, `fix:`, `docs:`, `test:`, and `chore:`.
 
 See also [architecture](architecture.md) and [application contracts](api_contracts.md).

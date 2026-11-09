@@ -37,7 +37,7 @@ enum ScanState: Equatable {
 
 enum ScanRequestResult: Equatable {
     case scanned
-    case authorizationRequired
+    case permissionDenied
 }
 
 /// Snapshot of the volume's capacity.
@@ -87,22 +87,16 @@ final class DiskSweepViewModel: ObservableObject {
     private let fileManager: FileManager
     @Published private(set) var volumes: [DiskVolume]
     @Published private(set) var selectedVolume: DiskVolume
-    @Published private(set) var pendingAccessURL: URL?
-    @Published var folderAccessError: String?
-    @Published private(set) var authorizationRequestID = 0
-    private let folderAccessStore: FolderAccessStore
-    private var activeScopedURLs: [String: URL] = [:]
+    @Published var accessError: String?
 
     init(
         scanner: DiskScanner? = nil,
         fileManager: FileManager = .default,
         homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         volumes suppliedVolumes: [DiskVolume]? = nil,
-        initialVolumeURL: URL? = nil,
-        folderAccessStore: FolderAccessStore = FolderAccessStore()
+        initialVolumeURL: URL? = nil
     ) {
         self.fileManager = fileManager
-        self.folderAccessStore = folderAccessStore
         let discoveredVolumes = suppliedVolumes ?? DiskVolume.mounted(using: fileManager)
         let requestedURL = initialVolumeURL ?? scanner?.rootURL ?? homeURL
         let injectedRoot = initialVolumeURL == nil ? scanner?.rootURL : nil
@@ -123,33 +117,9 @@ final class DiskSweepViewModel: ObservableObject {
         refreshDiskUsage()
     }
 
-    /// Saves one-month approval for the folder the scanner could not read.
-    @discardableResult
-    func authorizeFolder(_ url: URL) -> Bool {
-        folderAccessError = nil
-        guard let pendingAccessURL,
-              url.standardizedFileURL == pendingAccessURL.standardizedFileURL else {
-            folderAccessError = "Select the folder DiskSweep requested to continue the scan."
-            return false
-        }
-
-        do {
-            try folderAccessStore.save(url)
-            if url.startAccessingSecurityScopedResource() {
-                activeScopedURLs[url.standardizedFileURL.path] = url
-            }
-            self.pendingAccessURL = nil
-            return true
-        } catch {
-            folderAccessError = "Could not remember access to this folder: \(error.localizedDescription)"
-            return false
-        }
-    }
-
     /// Selects a mounted volume and clears results belonging to the old root.
     func selectVolume(_ volume: DiskVolume) {
         guard selectedVolume != volume else { return }
-        stopCurrentAccess()
         selectedVolume = volume
         scanner = DiskScanner(fileManager: fileManager, rootURL: volume.url)
         allItems = []
@@ -223,14 +193,12 @@ final class DiskSweepViewModel: ObservableObject {
     @discardableResult
     func scan() async -> ScanRequestResult {
         guard !isScanning else { return .scanned }
-        pendingAccessURL = nil
+        accessError = nil
         scanState = .scanning
         scanProgress = 0.0
-        let expired = folderAccessStore.expiredFolderPaths()
-        refreshActiveFolderScopes(expiredPaths: expired)
 
         do {
-            let results = try await scanner.scan(expiredFolderPaths: expired) { [weak self] value in
+            let results = try await scanner.scan { [weak self] value in
                 Task { @MainActor in self?.scanProgress = value }
             }
             allItems = results
@@ -241,8 +209,8 @@ final class DiskSweepViewModel: ObservableObject {
             return .scanned
         } catch DiskScannerError.accessRequired(let url) {
             scanState = .idle
-            requestAccess(to: url)
-            return .authorizationRequired
+            accessError = accessMessage(for: url)
+            return .permissionDenied
         } catch {
             scanState = .error("Could not scan this disk: \(error.localizedDescription)")
             return .scanned
@@ -254,7 +222,6 @@ final class DiskSweepViewModel: ObservableObject {
     /// Expands or collapses a directory node, lazily loading its children the
     /// first time it is opened.
     func toggleExpand(_ node: FileNode) async {
-        refreshActiveFolderScopes(expiredPaths: folderAccessStore.expiredFolderPaths())
         guard node.isDirectory else { return }
         node.isExpanded.toggle()
         revision += 1
@@ -263,16 +230,13 @@ final class DiskSweepViewModel: ObservableObject {
         node.isLoading = true
         revision += 1
         do {
-            let entries = try await scanner.children(
-                of: node.url,
-                expiredFolderPaths: folderAccessStore.expiredFolderPaths()
-            )
+            let entries = try await scanner.children(of: node.url)
             let children = entries.map { FileNode(entry: $0, depth: node.depth + 1) }
             for child in children { nodesByID[child.id] = child }
             node.children = children
         } catch DiskScannerError.accessRequired(let url) {
             node.isExpanded = false
-            requestAccess(to: url)
+            accessError = accessMessage(for: url)
         } catch {
             node.isExpanded = false
             deleteError = "Could not read \(node.name): \(error.localizedDescription)"
@@ -285,7 +249,6 @@ final class DiskSweepViewModel: ObservableObject {
 
     /// Hard-deletes selected nodes after the UI confirms the action.
     func deleteSelected() {
-        guard !expiredGrantBlocksSelection() else { return }
         for node in effectiveSelection {
             do {
                 try fileManager.removeItem(at: node.url)
@@ -326,41 +289,8 @@ final class DiskSweepViewModel: ObservableObject {
 
     // MARK: - Private
 
-    private func requestAccess(to url: URL) {
-        pendingAccessURL = url
-        authorizationRequestID += 1
-    }
-
-    private func expiredGrantBlocksSelection() -> Bool {
-        let expired = folderAccessStore.expiredFolderPaths()
-        refreshActiveFolderScopes(expiredPaths: expired)
-        guard let path = expired.first(where: { path in
-            effectiveSelection.contains { node in
-                let itemPath = node.url.standardizedFileURL.path
-                return itemPath == path || itemPath.hasPrefix(path + "/")
-            }
-        }) else { return false }
-        requestAccess(to: URL(fileURLWithPath: path, isDirectory: true))
-        return true
-    }
-
-    private func refreshActiveFolderScopes(expiredPaths: Set<String>) {
-        for path in expiredPaths {
-            activeScopedURLs.removeValue(forKey: path)?.stopAccessingSecurityScopedResource()
-        }
-        for url in folderAccessStore.validFolderURLs() {
-            let path = url.standardizedFileURL.path
-            guard activeScopedURLs[path] == nil,
-                  url.startAccessingSecurityScopedResource() else { continue }
-            activeScopedURLs[path] = url
-        }
-    }
-
-    private func stopCurrentAccess() {
-        for url in activeScopedURLs.values {
-            url.stopAccessingSecurityScopedResource()
-        }
-        activeScopedURLs.removeAll()
+    private func accessMessage(for url: URL) -> String {
+        "macOS denied access to \(url.path). In System Settings > Privacy & Security > Full Disk Access, add DiskSweep with the + button and enable it. If the existing entry cannot be enabled, remove it and add the current DiskSweep.app again, then scan again."
     }
 
     /// Rebuilds the top-level nodes from the current filtered items, resetting

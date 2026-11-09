@@ -24,7 +24,9 @@ build: generate ## Build the app in Release mode
 run: generate ## Build the app in Debug mode and open it
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \
 		-destination '$(DEST)' -derivedDataPath $(BUILD_DIR) build
-	open "$(BUILD_DIR)/Build/Products/Debug/$(APP)"
+	@pkill -TERM -f '^.*/DiskSweep[.]app/Contents/MacOS/DiskSweep$$' || true
+	@sleep 1
+	open -n "$(BUILD_DIR)/Build/Products/Debug/$(APP)"
 
 test: generate ## Run the unit tests
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' test

@@ -1,9 +1,11 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: DiskSweepViewModel
     @State private var showDeleteConfirm = false
+    @State private var isFolderAccessPanelOpen = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,19 +44,18 @@ struct ContentView: View {
             Text(viewModel.deleteError ?? "")
         }
         .alert(
-            "macOS Permission Required",
+            "Folder Access",
             isPresented: Binding(
-                get: { viewModel.accessError != nil },
-                set: { if !$0 { viewModel.accessError = nil } }
+                get: { viewModel.folderAccessError != nil },
+                set: { if !$0 { viewModel.folderAccessError = nil } }
             )
         ) {
-            Button("Open System Settings") {
-                viewModel.accessError = nil
-                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
-            }
-            Button("OK", role: .cancel) { viewModel.accessError = nil }
+            Button("OK", role: .cancel) { viewModel.folderAccessError = nil }
         } message: {
-            Text(viewModel.accessError ?? "")
+            Text(viewModel.folderAccessError ?? "")
+        }
+        .onChange(of: viewModel.authorizationRequestID) { _ in
+            requestDiskAccess()
         }
     }
 
@@ -133,7 +134,7 @@ struct ContentView: View {
     private var content: some View {
         switch viewModel.scanState {
         case .idle:
-            placeholder("Choose a disk and press “Scan”. macOS manages access to protected folders.")
+            placeholder("Choose a disk and press “Scan”. DiskSweep will ask for access only when it reaches a protected folder.")
         case .scanning where viewModel.rootNodes.isEmpty:
             placeholder("Scanning…")
         case .error(let message):
@@ -175,6 +176,34 @@ struct ContentView: View {
 
     private func scanSelectedVolume() {
         Task { await viewModel.scan() }
+    }
+
+    private func requestDiskAccess() {
+        guard !isFolderAccessPanelOpen else { return }
+        isFolderAccessPanelOpen = true
+
+        let panel = NSOpenPanel()
+        guard let requestedFolder = viewModel.pendingAccessURL else {
+            isFolderAccessPanelOpen = false
+            return
+        }
+        panel.title = "Grant DiskSweep Access"
+        panel.message = "Select \(requestedFolder.lastPathComponent) to continue scanning. Access is remembered for one month."
+        panel.prompt = "Grant Access"
+        panel.directoryURL = requestedFolder
+        panel.allowedContentTypes = [.folder]
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+
+        panel.begin { response in
+            Task { @MainActor in
+                isFolderAccessPanelOpen = false
+                guard response == .OK, let url = panel.url,
+                      viewModel.authorizeFolder(url) else { return }
+                scanSelectedVolume()
+            }
+        }
     }
 
     // MARK: - Helpers

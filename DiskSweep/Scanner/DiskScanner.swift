@@ -27,10 +27,14 @@ actor DiskScanner {
         self.mountedVolumePaths = Set(mountedURLs.map { $0.standardizedFileURL.path })
     }
 
-    /// Scans the root directory to `maxDepth`. If macOS denies access, throws
-    /// the affected URL so the UI can direct the user to System Settings.
-    func scan(progress: (@Sendable (Double) -> Void)? = nil) throws -> [DiskItem] {
-        let topLevel = try directories(in: rootURL)
+    /// Scans the root directory to `maxDepth`. If a previously granted folder
+    /// has expired or the OS denies access, throws its URL so the UI can request
+    /// access and restart the scan.
+    func scan(
+        expiredFolderPaths: Set<String> = [],
+        progress: (@Sendable (Double) -> Void)? = nil
+    ) throws -> [DiskItem] {
+        let topLevel = try directories(in: rootURL, expiredFolderPaths: expiredFolderPaths)
         guard !topLevel.isEmpty else {
             progress?(1.0)
             return []
@@ -40,7 +44,7 @@ actor DiskScanner {
         let total = Double(topLevel.count)
 
         for (index, dir) in topLevel.enumerated() {
-            items.append(contentsOf: try collect(at: dir, depth: 1))
+            items.append(contentsOf: try collect(at: dir, depth: 1, expiredFolderPaths: expiredFolderPaths))
             progress?(Double(index + 1) / total)
         }
 
@@ -48,8 +52,8 @@ actor DiskScanner {
     }
 
     /// Lists immediate children and their sizes for lazy tree navigation.
-    func children(of url: URL) throws -> [DiskEntry] {
-        let contents = try directoryContents(at: url)
+    func children(of url: URL, expiredFolderPaths: Set<String> = []) throws -> [DiskEntry] {
+        let contents = try directoryContents(at: url, expiredFolderPaths: expiredFolderPaths)
         var entries: [DiskEntry] = []
 
         for child in contents {
@@ -57,7 +61,7 @@ actor DiskScanner {
             do {
                 let isDirectory = try child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
                 let size = isDirectory
-                    ? (try directorySize(at: child) ?? 0)
+                    ? (try directorySize(at: child, expiredFolderPaths: expiredFolderPaths) ?? 0)
                     : try fileSize(at: child)
                 entries.append(
                     DiskEntry(
@@ -94,10 +98,13 @@ actor DiskScanner {
         }
     }
 
-    private func collect(at url: URL, depth: Int) throws -> [DiskItem] {
+    private func collect(at url: URL, depth: Int, expiredFolderPaths: Set<String>) throws -> [DiskItem] {
         var result: [DiskItem] = []
+        if expiredFolderPaths.contains(url.standardizedFileURL.path) {
+            throw DiskScannerError.accessRequired(url)
+        }
 
-        if let size = try directorySize(at: url) {
+        if let size = try directorySize(at: url, expiredFolderPaths: expiredFolderPaths) {
             result.append(
                 DiskItem(
                     url: url,
@@ -109,17 +116,24 @@ actor DiskScanner {
         }
 
         if depth < Self.maxDepth {
-            for child in try directories(in: url) {
-                result.append(contentsOf: try collect(at: child, depth: depth + 1))
+            for child in try directories(in: url, expiredFolderPaths: expiredFolderPaths) {
+                result.append(contentsOf: try collect(
+                    at: child,
+                    depth: depth + 1,
+                    expiredFolderPaths: expiredFolderPaths
+                ))
             }
         }
         return result
     }
 
-    private func directories(in url: URL) throws -> [URL] {
-        try directoryContents(at: url).filter { child in
+    private func directories(in url: URL, expiredFolderPaths: Set<String>) throws -> [URL] {
+        try directoryContents(at: url, expiredFolderPaths: expiredFolderPaths).filter { child in
             guard !isNestedMountPoint(child) else { return false }
             do {
+                if expiredFolderPaths.contains(child.standardizedFileURL.path) {
+                    throw DiskScannerError.accessRequired(child)
+                }
                 return try child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
             } catch let error as DiskScannerError {
                 throw error
@@ -132,7 +146,11 @@ actor DiskScanner {
         }
     }
 
-    private func directoryContents(at url: URL) throws -> [URL] {
+    private func directoryContents(at url: URL, expiredFolderPaths: Set<String>) throws -> [URL] {
+        let path = url.standardizedFileURL.path
+        if expiredFolderPaths.contains(path) {
+            throw DiskScannerError.accessRequired(url)
+        }
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             return []
@@ -155,8 +173,13 @@ actor DiskScanner {
         }
     }
 
-    /// Sums allocated bytes recursively and reports denied paths to the caller.
-    private func directorySize(at url: URL) throws -> Int64? {
+    /// Sums allocated bytes recursively and stops at the first denied or
+    /// expired folder so the UI can ask for permission before continuing.
+    private func directorySize(at url: URL, expiredFolderPaths: Set<String>) throws -> Int64? {
+        if expiredFolderPaths.contains(url.standardizedFileURL.path) {
+            throw DiskScannerError.accessRequired(url)
+        }
+
         let keys: [URLResourceKey] = [.totalFileSizeKey, .totalFileAllocatedSizeKey, .isRegularFileKey]
         var deniedURL: URL?
         let enumerator = fileManager.enumerator(
@@ -184,6 +207,10 @@ actor DiskScanner {
 
         var total: Int64 = 0
         for case let fileURL as URL in enumerator {
+            let path = fileURL.standardizedFileURL.path
+            if expiredFolderPaths.contains(path) {
+                throw DiskScannerError.accessRequired(fileURL)
+            }
             if isNestedMountPoint(fileURL) {
                 enumerator.skipDescendants()
                 continue

@@ -22,17 +22,65 @@ final class DiskSweepTests: XCTestCase {
         XCTAssertEqual(usage.totalFormatted, ByteFormatter.string(fromByteCount: 1_000_000_000))
     }
 
-    // MARK: - Disk access
+    // MARK: - Persistent folder access
+
+    func testFolderAccessBookmarkRestoresAndCanBeCleared() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("disksweep-bookmark-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "DiskSweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = FolderAccessStore(defaults: defaults)
+
+        try store.save(root)
+        XCTAssertEqual(store.restore(forFolderURL: root)?.standardizedFileURL, root.standardizedFileURL)
+
+        store.clear(forFolderURL: root)
+        XCTAssertNil(store.restore(forFolderURL: root))
+    }
+
+    func testFolderAccessGrantExpiresAfterOneCalendarMonthPerFolder() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("disksweep-expiring-bookmark-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "DiskSweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = FolderAccessStore(defaults: defaults)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let grantDate = calendar.date(from: DateComponents(year: 2026, month: 1, day: 31, hour: 12))!
+        let expirationDate = calendar.date(byAdding: .month, value: 1, to: grantDate)!
+
+        try store.save(root, at: grantDate)
+
+        XCTAssertEqual(
+            store.restore(forFolderURL: root, at: expirationDate.addingTimeInterval(-1), calendar: calendar)?.standardizedFileURL,
+            root.standardizedFileURL
+        )
+        XCTAssertNil(store.restore(forFolderURL: root, at: expirationDate, calendar: calendar))
+        XCTAssertEqual(store.expiredFolderPaths(at: expirationDate, calendar: calendar), [root.standardizedFileURL.path])
+    }
 
     @MainActor
-    func testReadableDiskScansImmediatelyWithoutFolderSelection() async throws {
+    func testReadableDiskScansImmediatelyWithoutGrantingItsRoot() async throws {
         let root = try makeTempTree([("folder", 2_000)])
         defer { try? FileManager.default.removeItem(at: root) }
 
+        let suiteName = "DiskSweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = FolderAccessStore(defaults: defaults)
         let vm = DiskSweepViewModel(
-            scanner: DiskScanner(rootURL: root),
+            fileManager: .default,
             homeURL: root,
-            volumes: [DiskVolume(url: root, name: "Fixture")]
+            volumes: [DiskVolume(url: root, name: "Fixture")],
+            folderAccessStore: store
         )
 
         XCTAssertNotNil(vm.diskUsage)
@@ -40,29 +88,8 @@ final class DiskSweepTests: XCTestCase {
         XCTAssertEqual(result, .scanned)
         XCTAssertEqual(vm.scanState, .done)
         XCTAssertEqual(vm.allItems.map(\.name), ["folder"])
-        XCTAssertNil(vm.accessError)
-    }
-
-    @MainActor
-    func testDeniedDiskAccessShowsSystemSettingsGuidanceWithoutFolderSelection() async throws {
-        let root = try makeTempTree([("folder", 2_000)])
-        defer {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
-            try? FileManager.default.removeItem(at: root)
-        }
-        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: root.path)
-
-        let vm = DiskSweepViewModel(
-            scanner: DiskScanner(rootURL: root),
-            homeURL: root,
-            volumes: [DiskVolume(url: root, name: "Fixture")]
-        )
-
-        let result = await vm.scan()
-        XCTAssertEqual(result, .permissionDenied)
-        XCTAssertEqual(vm.scanState, .idle)
-        XCTAssertTrue(vm.accessError?.contains(root.path) == true)
-        XCTAssertTrue(vm.accessError?.contains("System Settings > Privacy & Security") == true)
+        XCTAssertNil(vm.pendingAccessURL)
+        XCTAssertNil(store.restore(forFolderURL: root), "Scanning a disk must not ask for its root first.")
     }
 
     // MARK: - Threshold filtering
@@ -168,6 +195,37 @@ final class DiskSweepTests: XCTestCase {
 
         await vm.scan()
         XCTAssertEqual(vm.allItems.map(\.name), ["second"])
+    }
+
+    @MainActor
+    func testExpiredFolderGrantRequestsAuthorizationWhenScanReachesIt() async throws {
+        let root = try makeTempTree([("folder", 2_000)])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "DiskSweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let protectedFolder = root.appendingPathComponent("folder", isDirectory: true)
+        let store = FolderAccessStore(defaults: defaults)
+        let expiredGrantDate = Calendar.current.date(byAdding: .month, value: -1, to: Date())!
+        try store.save(protectedFolder, at: expiredGrantDate)
+        let vm = DiskSweepViewModel(
+            homeURL: root,
+            volumes: [DiskVolume(url: root, name: "Fixture")],
+            folderAccessStore: store
+        )
+
+        let result = await vm.scan()
+        XCTAssertEqual(result, .authorizationRequired)
+        XCTAssertEqual(vm.pendingAccessURL?.standardizedFileURL, protectedFolder.standardizedFileURL)
+        XCTAssertEqual(vm.scanState, .idle)
+
+        XCTAssertTrue(vm.authorizeFolder(protectedFolder))
+        XCTAssertNil(vm.pendingAccessURL)
+        XCTAssertEqual(store.restore(forFolderURL: protectedFolder)?.standardizedFileURL, protectedFolder.standardizedFileURL)
+        let resumedScan = await vm.scan()
+        XCTAssertEqual(resumedScan, .scanned)
+        XCTAssertEqual(vm.scanState, .done)
     }
 
     func testMountedVolumesOnlyContainsBrowsableVolumes() {
